@@ -42,7 +42,6 @@ class LUPress(BasePress):
                 raise IOError(f"Loading Budget Curves Failed: {e}")
         else:
             print("No Budget Curves Loaded")
-    # =============================================================
 
     @property
     def compression_ratio(self):
@@ -114,13 +113,17 @@ class LUPress(BasePress):
                 module.masked_key_indices = None
             return keys, values
             
-        sorted_indices = torch.argsort(scores.squeeze(0), dim=-1, stable=True)
-        rank = torch.arange(seq_len, device=scores.device).expand_as(sorted_indices)
-        prune_mask = rank < num_to_prune_per_head.unsqueeze(1)
+        sorted_indices = torch.argsort(scores.squeeze(0), dim=-1, descending=True, stable=True)
         
+        rank = torch.arange(seq_len, device=scores.device).expand_as(sorted_indices)
+        keep_mask = rank < final_keep_per_head.unsqueeze(1)
+        
+        prune_mask = ~keep_mask
+
         pruned_seq_indices = sorted_indices[prune_mask]
         head_indices = torch.arange(num_heads, device=scores.device).unsqueeze(1).expand_as(sorted_indices)[prune_mask]
         batch_indices = torch.zeros_like(head_indices)
-        
+
         module.masked_key_indices = (batch_indices, head_indices, pruned_seq_indices)
+
         return keys, values
