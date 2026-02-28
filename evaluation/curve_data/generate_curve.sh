@@ -41,18 +41,18 @@ elif [ "$MODEL_TYPE" == "mistral" ]; then
 elif [ "$MODEL_TYPE" == "qwen" ]; then
     STEP1_SCRIPT="step1_qwen.py"
 else
-    echo "❌ Error: Unknown MODEL_TYPE '$MODEL_TYPE'. Use llama, mistral, or qwen."
+    echo "Error: Unknown MODEL_TYPE '$MODEL_TYPE'. Use llama, mistral, or qwen."
     exit 1
 fi
 
 echo "---------------------------------------------------------"
 echo "[1/2] Extracting Attention & Feature Matrices ($STEP1_SCRIPT) ..."
 echo "---------------------------------------------------------"
-# python3 curve_data/$STEP1_SCRIPT \
-#     --model_path "$MODEL_PATH" \
-#     --dataset_path "$DATASET_PATH" \
-#     --output_dir "$MID_DATA_DIR" \
-#     --cuda_device "$CUDA_DEVICE"
+python3 curve_data/$STEP1_SCRIPT \
+    --model_path "$MODEL_PATH" \
+    --dataset_path "$DATASET_PATH" \
+    --output_dir "$MID_DATA_DIR" \
+    --cuda_device "$CUDA_DEVICE"
 
 echo "---------------------------------------------------------"
 echo "[2/2] Computing Convex Hull & Averages In-Memory ..."
