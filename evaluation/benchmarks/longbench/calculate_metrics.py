@@ -28,13 +28,13 @@ except ImportError as e:
 def calculate_metrics(df):
     predictions = df["predicted_answer"].tolist()
     answers = df["answers"].tolist()
-    dataset = df["task"].tolist()[0] # 获取当前数据集（任务）名称
+    dataset = df["task"].tolist()[0] # get the dataset/task name (assumes all rows in df belong to the same task)
     all_classes = df["all_classes"].tolist()[0]
     
-    # 调用 scorer 计算出浮点数分数
+    # compute the score as a float
     score_value = scorer(dataset, predictions, answers, all_classes)
     
-    # 将分数包装在字典中，键为数据集/任务名称
+    # wrap the score in a dict keyed by dataset/task name
     return {dataset: score_value}
 
 

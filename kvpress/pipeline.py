@@ -133,14 +133,16 @@ class KVPressTextGenerationPipeline(Pipeline):
             Dictionary with "context_ids" and "questions_ids" tensors.
         """
 
-        # Apply chat template if available
-        # 使用模板的话启用，否则注释掉
+
         if dataset_name == "longbench":
             if data_dir_name in ["triviaqa","samsum","lcc","repobench-p","trec"]:
                 if data_dir_name == "triviaqa":
-                    questions = [question  for question in questions] # 不使用chat template的triviqa 解决triviqa的answer prefix重复问题
+                    # TriviaQA: skip answer_prefix to match the original LongBench evaluation,
+                    # which avoids duplicated prefix in the output
+                    questions = [question  for question in questions]
                 else:
-                    questions = [question  + answer_prefix for question in questions] # 不使用chat template
+                    # These datasets do not use a chat template, following the original LongBench evaluation setup
+                    questions = [question  + answer_prefix for question in questions] 
 
             else:
                 if self.tokenizer.chat_template is None:
@@ -156,7 +158,7 @@ class KVPressTextGenerationPipeline(Pipeline):
                         enable_thinking=False,
                     )
                     context, question_suffix = context.split(separator)
-                questions = [question  + answer_prefix + question_suffix for question in questions] # 使用chat template的情况
+                questions = [question  + answer_prefix + question_suffix for question in questions] 
         else:
             if self.tokenizer.chat_template is None:
                 bos_token = getattr(self.tokenizer, "bos_token", "")
@@ -173,7 +175,7 @@ class KVPressTextGenerationPipeline(Pipeline):
                 context, question_suffix = context.split(separator)
             # Add question_suffix and answer prefix
             # e.g. for llama3.1, question_suffix="<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n")
-            questions = [question + question_suffix + answer_prefix for question in questions] # 原始情况，但他的question_suffix在answer_prefix前，这与longbench不同
+            questions = [question + question_suffix + answer_prefix for question in questions] 
 
         # Tokenize the context and questions
         context_ids = self.tokenizer.encode(context, return_tensors="pt", add_special_tokens=False)
@@ -295,13 +297,6 @@ class KVPressTextGenerationPipeline(Pipeline):
             context_length, context_length + question_ids.shape[1], device=self.model.device
         ).unsqueeze(0)
 
-
-        # 打印tokenized输入  
-        # print("=== Tokenized Input ===")  
-        # print(f"Question IDs: {question_ids}")  
-        # print(f"Decoded: {self.tokenizer.decode(question_ids[0], skip_special_tokens=False)}")  
-        # print("======================")
-        # exit(0)
 
         # if the user doesn't provide a question, skip forward pass
         outputs = self.model(

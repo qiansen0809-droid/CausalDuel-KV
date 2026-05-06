@@ -40,9 +40,8 @@ class EvaluationConfig:
     compression_ratio: float = 1.0
     key_channel_compression_ratio: Optional[float] = None
 
-    # ======= [新增] 支持从命令行读取 npz 路径 =======
+    # Support loading a budget curve path from the command line
     budget_curve_path: Optional[str] = None
-    # ============================================
 
     # Dataset and generation parameters
     fraction: float = 1.0
@@ -72,11 +71,8 @@ class EvaluationConfig:
         # Validate press
         assert self.press_name in PRESS_REGISTRY, f"Press '{self.press_name}' not found in PRESS_REGISTRY"
         
-        # =========== 修改开始 ===========
-        # 根据当前的 compression_ratio 动态修改 output_dir
-        # 例如：./0.5_results, ./1.0_results
+        # Dynamically set output_dir based on compression_ratio (e.g. ./0.5_results, ./1.0_results)
         self.output_dir = f"./{self.compression_ratio}_results"
-        # =========== 修改结束 ===========
         if self.press_name == "no_press":
             # override compression_ratio to 0.0
             logger.info("Using 'no_press' configuration. Overriding compression_ratio to 0.0")
@@ -123,7 +119,7 @@ class EvaluationConfig:
             f"{self.compression_ratio:.2f}",
         ]
 
-        # ======= [新增] 在输出文件夹中体现曲线名称 =======
+        # Include the curve name in the output directory path
         if self.budget_curve_path is not None:
             curve_name = os.path.basename(self.budget_curve_path).split('.')[0]
             components.append(f"curve_{curve_name}")
@@ -235,11 +231,10 @@ class EvaluationRunner:
         if hasattr(press, "model_name"):
             press.model_name = os.path.basename(self.config.model)
 
-        # ======= [新增] 将命令行传来的曲线路径赋给 press =======
+        # Pass the budget curve path from CLI to the press
         if hasattr(press, "budget_curve_path") and self.config.budget_curve_path is not None:
             press.budget_curve_path = self.config.budget_curve_path
-        # ====================================================
-        # 触发参数后处理  
+        # Trigger post-setup initialization if defined
         if hasattr(press, "_post_setup_init"):  
             press._post_setup_init() 
 
@@ -403,13 +398,12 @@ class EvaluationRunner:
         logger.info(f"Metrics updated in {save_filename}")
         logger.info(f"Newly calculated metrics for this task:\n{json.dumps(new_metrics, indent=2)}")
 
-        # +++ 添加下面的调试代码 +++
+        # Print a quick summary of the task result
         print("-" * 50)
         task_name = list(new_metrics.keys())[0] if new_metrics else "Unknown Task"
         task_score = list(new_metrics.values())[0] if new_metrics else "N/A"
         print(f"✅ Task Completed: {task_name} | Score: {task_score}")
         print("-" * 50)
-        # +++ 添加结束 +++
 
     def run_evaluation(self):
         """

@@ -67,7 +67,7 @@ answer_prefix = {
     "trec": "Type:",
     "multi_news": "Summary:",
     "samsum": "Summary:",
-    # "triviaqa": "Answer",
+    "triviaqa": "Answer",
     "triviaqa": "",
     "vcsum": "会议总结：",
     "passage_count": "The final answer is: ",
@@ -128,8 +128,7 @@ for task in [
         )
     elif task == "triviaqa":
         dataset = dataset.map(
-            lambda x: {"input": question_template[task].format(input=x["input"].removesuffix("Answer:"))}# 由于末尾带了\n它没有成功删除Answer:\n,导致出现了两个Answer
-            # lambda x: {"input": question_template[task].format(input=x["input"].rstrip('\n').removesuffix("Answer:"))}
+            lambda x: {"input": question_template[task].format(input=x["input"].removesuffix("Answer:"))}
         )
     elif task == "samsum":
         dataset = dataset.map(

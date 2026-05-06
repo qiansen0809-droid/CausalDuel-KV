@@ -62,10 +62,6 @@ def get_dataframe(path):
 
         df["context"], df["question"], df["answer_prefix"] = zip(*df["input"].apply(split_context_question))
 
-        # +++ 修改开始: 在这里为 context 列的每个元素添加前缀 +++
-        # prefix = "Repeat the following context exactly:\n"
-        # df["context"] = prefix + df["context"]
-        # +++ 修改结束 +++
         
         df["task"] = task
         df["max_new_tokens"] = MAX_NEW_TOKENS[task.split("_")[0]]

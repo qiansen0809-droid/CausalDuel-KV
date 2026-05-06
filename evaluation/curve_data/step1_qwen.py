@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import List
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# ================= 命令行参数解析 =================
+# ================= CLI argument parsing =================
 parser = argparse.ArgumentParser(description="Extract Attention and EA scores for Qwen2.5")
 parser.add_argument("--model_path", type=str, required=True)
 parser.add_argument("--dataset_path", type=str, required=True)
@@ -35,17 +35,17 @@ class AnalyzeConfig:
     ea_n_sink: int = 4
     ea_use_covariance: bool = True
     ea_epsilon: float = 0.02
-    dummy_context: str = "人工智能在科学研究中的应用前景非常广阔。" * 50
-    dummy_questions: List[str] = field(default_factory=lambda: ["这句话的主旨是什么？"])
+    dummy_context: str = "The prospects for AI in scientific research are very broad." * 50
+    dummy_questions: List[str] = field(default_factory=lambda: ["What is the main idea of this passage?"])
 
-# ================= 辅助函数 (Qwen Specific) =================
+# ================= Helper functions (Qwen-specific) =================
 def rotate_half(x):
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
 
 def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
-    """Qwen2 特有的 RoPE 实现"""
+    """Qwen2-specific RoPE implementation"""
     if cos.dim() == 3: # [1, seq, dim] -> [1, 1, seq, dim]
         cos = cos.unsqueeze(unsqueeze_dim)
         sin = sin.unsqueeze(unsqueeze_dim)
@@ -69,7 +69,7 @@ class SampleData:
     sample_id: str = "0"
     task: str = "default"
 
-# ================= 核心 Recorder =================
+# ================= Core Recorder =================
 class Recorder:
     def __init__(self, config: AnalyzeConfig):
         self.config = config
@@ -155,7 +155,7 @@ class Recorder:
         self.snapkv_table[layer_idx] = final_scores.squeeze(0).detach().cpu()
 
     def compute_ea(self, layer_idx, module, hidden_states, key_states, value_states):
-        # Qwen2 特有的 EA 计算 (RoPE 维度处理)
+        # Qwen2-specific EA computation (handles RoPE dimension layout)
         if self.ea_table is None: self.ea_table = {}
         if self.rope_module is None: return
         n_sink = self.config.ea_n_sink
@@ -181,7 +181,7 @@ class Recorder:
         cos = cos.to(device=mu.device, dtype=torch.float32)
         sin = sin.to(device=mu.device, dtype=torch.float32)
         
-        # Qwen 维度调整
+        # Adjust RoPE tensor dimensions for Qwen
         if cos.dim() == 3: 
             cos, sin = cos.squeeze(0), sin.squeeze(0)
         if cos.dim() == 4:
@@ -244,7 +244,7 @@ class Recorder:
 
 recorder = None 
 
-# ================= 模型 Wrapper (Qwen) =================
+# ================= Model attention wrapper (Qwen) =================
 def custom_qwen_attn_forward_wrapper(layer_idx, original_forward, config_obj):
     def forward(self, hidden_states, *args, **kwargs):
         position_embeddings = kwargs.get('position_embeddings')
@@ -344,7 +344,7 @@ def process_samples(config_obj, samples):
         with torch.no_grad(): model(ctx_tokens)
         recorder.disable_context_analysis()
 
-        # 完整的保存逻辑
+        # Save all recorded scores
         if recorder.key_diff_table:
             np.save(os.path.join(sample_dir, "keydiff.npy"), torch.stack([recorder.key_diff_table[i] for i in range(num_layers)]).numpy())
         if recorder.snapkv_table:

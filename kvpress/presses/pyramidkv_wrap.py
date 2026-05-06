@@ -10,16 +10,16 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PyramidKVWrap(BasePress):
     """
-    PyramidKV 作为包装器的实现。
-    它可以包装任何提供 score() 方法的 ScorerPress。
+    Wrapper implementation of PyramidKV.
+    Can wrap any ScorerPress that provides a score() method.
     """
-    press: ScorerPress  # 被包装的打分器，例如 SnapKVPress
+    press: ScorerPress  # the underlying scorer to wrap, e.g. SnapKVPress
     beta: int = 20
     window_size: int = 64
 
     def __post_init__(self):
-        assert isinstance(self.press, ScorerPress), "PyramidKVPress 必须包装一个 ScorerPress"
-        assert self.beta >= 1, "Beta 应该 >= 1"
+        assert isinstance(self.press, ScorerPress), "PyramidKVPress must wrap a ScorerPress"
+        assert self.beta >= 1, "Beta must be >= 1"
 
     @property
     def compression_ratio(self):
@@ -31,9 +31,9 @@ class PyramidKVWrap(BasePress):
 
     def get_layer_budget(self, module: nn.Module, q_len: int) -> int:
         """
-        金字塔预算计算逻辑（保持不变）
+        Compute the per-layer KV budget following the pyramid allocation strategy.
         """
-        # 计算该层应保留的长度 n_kept
+        # Compute n_kept: the number of tokens to retain for this layer
         max_capacity_prompt = self.window_size + q_len * (1 - self.compression_ratio)
         min_num = (max_capacity_prompt - self.window_size) / self.beta
         max_num = (max_capacity_prompt - self.window_size) * 2 - min_num
@@ -61,14 +61,14 @@ class PyramidKVWrap(BasePress):
         if self.compression_ratio == 0:
             return keys, values
 
-        # 核心逻辑：调用被包装压榨器的 score 方法
+        # Delegate scoring to the wrapped press
         scores = self.press.score(module, hidden_states, keys, values, attentions, kwargs)
 
-        # 根据金字塔逻辑计算当前层的 Budget
+        # Compute the per-layer budget using the pyramid strategy
         q_len = hidden_states.shape[1]
         n_kept = self.get_layer_budget(module, q_len)
 
-        # 执行 Top-k 筛选
+        # Select the top-k tokens by score
         indices = scores.topk(n_kept, dim=-1).indices
         indices = indices.unsqueeze(-1).expand(-1, -1, -1, module.head_dim)
 

@@ -7,7 +7,7 @@ import numpy as np
 from collections import Counter
 from rouge import Rouge
 
-# 尝试导入可选库，没有的话也不影响 gov_report (它主要用 rouge)
+# Optional imports; not required for gov_report (which only uses rouge)
 try:
     import jieba
     from fuzzywuzzy import fuzz
@@ -15,22 +15,22 @@ except ImportError:
     pass
 
 # ==========================================
-# 下面是你提供的 Metric 计算代码 (完全内嵌)
+# Metric computation code (inlined)
 # ==========================================
 
 def calculate_metrics(df):
     predictions = df["predicted_answer"].tolist()
     answers = df["answers"].tolist()
-    # 这里的 task 获取方式假设整个 df 是同一个 task
+    # Assumes all rows in df belong to the same task
     dataset = df["task"].tolist()[0] 
     
-    # 兼容处理：如果没有 all_classes 列，给个 None
+    # Fall back to None if the all_classes column is missing
     if "all_classes" in df.columns:
         all_classes = df["all_classes"].tolist()[0]
     else:
         all_classes = None
 
-    # 调用 scorer 计算出浮点数分数
+    # Compute the score as a float
     score_value = scorer(dataset, predictions, answers, all_classes)
     
     return {dataset: score_value}
@@ -192,11 +192,11 @@ dataset2metric = {
 }
 
 # ==========================================
-# 主运行逻辑
+# Main execution logic
 # ==========================================
 
 def main():
-    # 你的文件路径
+    # Path to the predictions CSV file
     csv_path = "/ssd2/tangziyao/kvpress-0.2.10/scripts/llama_3.1_8b/longbench_v1/fast/attn_max_sink_results/longbench__gov_report__--ssd2--tangziyao--tzy--models--llama-3.1-8b__mykeydiff__0.80/predictions.csv"
     
     if not os.path.exists(csv_path):
@@ -208,17 +208,17 @@ def main():
     
     print(f"Original Columns: {df.columns.tolist()}")
 
-    # 1. 过滤数据：确保只包含 gov_report
-    # (如果文件本来就是 gov_report 目录下的，这一步通常不会删掉任何数据，但为了安全起见)
+    # 1. Filter to only include gov_report rows
+    # (usually a no-op if the file is from the gov_report directory, but kept for safety)
     target_task = "gov_report"
     if "task" in df.columns:
-        # 如果 csv 里 task 名字可能是 "gov_report" 也可能是 "LongBench/gov_report" 等，做个模糊匹配
+        # Use fuzzy match in case the task name varies (e.g. "gov_report" vs "LongBench/gov_report")
         df = df[df['task'].astype(str).str.contains(target_task, case=False, na=False)].copy()
         print(f"Filtered to '{target_task}' task. Rows: {len(df)}")
-        # 强制统一 task 名字，以便 dataset2metric 能找到对应的 rouge_score
+        # Normalize the task name so dataset2metric can find the rouge_score entry
         df['task'] = target_task
     else:
-        # 如果没有 task 列，强制指定为 gov_report
+        # No task column — assume gov_report
         print(f"Warning: 'task' column missing. Assuming '{target_task}'.")
         df['task'] = target_task
 
@@ -226,25 +226,25 @@ def main():
         print("No data found for this task.")
         return
 
-    # 2. 关键数据转换：CSV 中的 list 存成了字符串 "['ans1']"，需要转回 list
-    # 同时处理 predicted_answer 中的 NaN
+    # 2. Convert 'answers' from its stringified list form back to an actual Python list
+    # Also handle NaN values in predicted_answer
     df["predicted_answer"] = df["predicted_answer"].fillna("").astype(str)
     
     print("Converting 'answers' from string to list...")
     try:
-        # 使用 eval 安全地将字符串 "['answer']" 转回 Python list ['answer']
+        # Use eval to parse the stringified list "['answer']" back to ['answer']
         df["answers"] = df["answers"].apply(lambda x: eval(x) if isinstance(x, str) else x)
     except Exception as e:
         print(f"Error converting answers column: {e}")
         return
 
-    # 处理 all_classes (如果存在)
+    # Parse all_classes if present
     if "all_classes" in df.columns:
         df["all_classes"] = df["all_classes"].apply(lambda x: eval(x) if isinstance(x, str) else x)
     else:
         df["all_classes"] = None
 
-    # 3. 计算分数
+    # 3. Compute metrics
     print("Calculating metrics...")
     try:
         results = calculate_metrics(df)
@@ -253,7 +253,7 @@ def main():
         print(json.dumps(results, indent=4))
         print("="*40)
         
-        # 保存结果
+        # Save results to file
         output_file = csv_path.replace(".csv", "_manual_metrics.json")
         with open(output_file, "w") as f:
             json.dump(results, f, indent=4)

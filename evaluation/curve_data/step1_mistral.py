@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import List
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# ================= 命令行参数解析 =================
+# ================= CLI argument parsing =================
 parser = argparse.ArgumentParser(description="Extract Attention and EA scores for Mistral")
 parser.add_argument("--model_path", type=str, required=True)
 parser.add_argument("--dataset_path", type=str, required=True)
@@ -29,17 +29,17 @@ class AnalyzeConfig:
     default_task_name: str = "dureader" 
     max_new_tokens: int = 64
     use_value_norm_weighting: bool = True
-    # Mistral 原配置参数
-    snapkv_window_size: int = 64
-    snapkv_kernel_size: int = 5
+    # Default Mistral configuration parameters
+    snapkv_window_size: int = 32
+    snapkv_kernel_size: int = 7
     ea_future_positions: int = 512
     ea_n_sink: int = 4
     ea_use_covariance: bool = True
     ea_epsilon: float = 0.02
-    dummy_context: str = "人工智能在科学研究中的应用前景非常广阔。" * 50
-    dummy_questions: List[str] = field(default_factory=lambda: ["这句话的主旨是什么？"])
+    dummy_context: str = "The prospects for AI in scientific research are very broad." * 50
+    dummy_questions: List[str] = field(default_factory=lambda: ["What is the main idea of this passage?"])
 
-# ================= 辅助函数 (Mistral Specific) =================
+# ================= Helper functions (Mistral-specific) =================
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     batch, num_key_value_heads, slen, head_dim = hidden_states.shape
     if n_rep == 1: return hidden_states
@@ -52,7 +52,7 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
-    """Mistral 特有的 RoPE 实现"""
+    """Mistral-specific RoPE implementation"""
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
     q_embed = (q * cos) + (rotate_half(q) * sin)
@@ -66,7 +66,7 @@ class SampleData:
     sample_id: str = "0"
     task: str = "default"
 
-# ================= 核心 Recorder =================
+# ================= Core Recorder =================
 class Recorder:
     def __init__(self, config: AnalyzeConfig):
         self.config = config
@@ -152,7 +152,7 @@ class Recorder:
         self.snapkv_table[layer_idx] = final_scores.squeeze(0).detach().cpu()
 
     def compute_ea(self, layer_idx, module, hidden_states, key_states, value_states):
-        # Mistral 特有的 EA 计算逻辑 (RoPE 维度处理不同)
+        # Mistral-specific EA computation (different RoPE dimension handling)
         if self.ea_table is None: self.ea_table = {}
         if self.rope_module is None: return
         n_sink = self.config.ea_n_sink
@@ -251,7 +251,7 @@ class Recorder:
 
 recorder = None 
 
-# ================= 模型 Wrapper (Mistral) =================
+# ================= Model attention wrapper (Mistral) =================
 def custom_mistral_attn_forward_wrapper(layer_idx, original_forward, config_obj):
     def forward(self, hidden_states, position_embeddings, attention_mask, past_key_value=None, **kwargs):
         cache_position = kwargs.get('cache_position')
@@ -348,7 +348,7 @@ def process_samples(config_obj, samples):
         with torch.no_grad(): model(ctx_tokens)
         recorder.disable_context_analysis()
 
-        # 完整的保存逻辑
+        # Save all recorded scores
         if recorder.key_diff_table:
             np.save(os.path.join(sample_dir, "keydiff.npy"), torch.stack([recorder.key_diff_table[i] for i in range(num_layers)]).numpy())
         if recorder.snapkv_table:

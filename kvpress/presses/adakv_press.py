@@ -59,13 +59,6 @@ class AdaKVPress(BasePress):
         bsz, num_key_value_heads, q_len = scores.shape
 
 
-        target_budget = 1024
-        k_len = q_len  
-        if k_len <= target_budget:  
-            self.compression_ratio = 0.0  
-        else:  
-            self.compression_ratio = 1.0 - (target_budget / k_len)  
-
         # Make sure to keep at least alpha * (1 - compression_ratio) KV pairs per head
         n_kept = int(q_len * (1 - self.compression_ratio))  # ScorerPress definition
         n_safe = int(n_kept * self.alpha_safeguard)
