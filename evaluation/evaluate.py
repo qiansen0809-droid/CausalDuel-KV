@@ -72,7 +72,9 @@ class EvaluationConfig:
         assert self.press_name in PRESS_REGISTRY, f"Press '{self.press_name}' not found in PRESS_REGISTRY"
         
         # Dynamically set output_dir based on compression_ratio (e.g. ./0.5_results, ./1.0_results)
-        self.output_dir = f"./{self.compression_ratio}_results"
+        # Only applies when output_dir has not been explicitly set via CLI
+        if self.output_dir == "./results":
+            self.output_dir = f"./{self.compression_ratio}_results"
         if self.press_name == "no_press":
             # override compression_ratio to 0.0
             logger.info("Using 'no_press' configuration. Overriding compression_ratio to 0.0")

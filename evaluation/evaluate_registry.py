@@ -46,9 +46,8 @@ DATASET_REGISTRY = {
     # "infinitebench": "/ssd2/tangziyao/tzy/datasets/InfiniteBench",
     "infinitebench": "/ssd2/tangziyao/tzy/datasets/myinf",
     # "longbench": "Xnhyacinth/LongBench",
-    "longbench": "/ssd1/tangziyao/datasets/longbench-v1",
+    "longbench": "/ssd1/tangziyao/datasets/longbench",
     "longbench-e": "Xnhyacinth/LongBench",
-    "longbench-v2": "/ssd2/tangziyao/tzy/datasets/longbench-v2",
 }
 
 SCORER_REGISTRY = {
