@@ -63,7 +63,7 @@ SCORER_REGISTRY = {
 
 PRESS_REGISTRY = {
     "adakv_expected_attention": AdaKVPress(ExpectedAttentionPress()),
-    "adakv_expected_attention_e2": AdaKVPress(ExpectedAttentionPress(epsilon=1e-2)),
+    "adakv_expected_attention_e2": AdaKVPress(ExpectedAttentionPress(epsilon=2e-2)),
     "adakv_snapkv": AdaKVPress(SnapKVPress()),
     "block_keydiff": BlockPress(press=KeyDiffPress(), block_size=128),
     "chunkkv": ChunkKVPress(press=SnapKVPress(), chunk_length=20),
@@ -74,7 +74,7 @@ PRESS_REGISTRY = {
     "duo_attention": DuoAttentionPress(),
     "duo_attention_on_the_fly": DuoAttentionPress(on_the_fly_scoring=True),
     "expected_attention": ExpectedAttentionPress(),
-    "expected_attention_e2": ExpectedAttentionPress(epsilon=1e-2),
+    "expected_attention_e2": ExpectedAttentionPress(epsilon=2e-2),
     "finch": FinchPress(),
     "keydiff": KeyDiffPress(),
     "kvzip": KVzipPress(),
@@ -92,11 +92,9 @@ PRESS_REGISTRY = {
     "pyramidkv_snapkv":PyramidKVWrap(SnapKVPress()),
     "pyramidkv_keydiff":PyramidKVWrap(KeyDiffPress()),
     "pyramidkv_ea":PyramidKVWrap(ExpectedAttentionPress()),
+    "pyramidkv_ea_e2":PyramidKVWrap(ExpectedAttentionPress(epsilon=2e-2)),
     "adakv_keydiff":AdaKVPress(KeyDiffPress()),
-    "kvzap_mlp_head": KVzapPress(model_type="mlp"),
-    "kvzap_mlp_layer": AdaKVPress(KVzapPress(model_type="mlp")),
     "lu_snapkv": LUPress(press=SnapKVPress(),sink=4, window=32),
     "lu_keydiff": LUPress(press=KeyDiffPress(),sink=4, window=1),
     "lu_ea": LUPress(press=ExpectedAttentionPress(epsilon=2e-2),sink=4, window=1),
-
 }
