@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import List
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# ================= 命令行参数解析 =================
+# ================= CLI argument parsing =================
 parser = argparse.ArgumentParser(description="Extract Attention and EA scores for Llama")
 parser.add_argument("--model_path", type=str, required=True)
 parser.add_argument("--dataset_path", type=str, required=True)
@@ -26,7 +26,6 @@ class AnalyzeConfig:
     model_path: str = args.model_path
     dataset_path: str = args.dataset_path
     output_dir: str = args.output_dir
-    default_task_name: str = "dureader" 
     max_new_tokens: int = 64
     use_value_norm_weighting: bool = True
     snapkv_window_size: int = 32
@@ -38,7 +37,7 @@ class AnalyzeConfig:
     dummy_context: str = "人工智能在科学研究中的应用前景非常广阔。" * 50
     dummy_questions: List[str] = field(default_factory=lambda: ["这句话的主旨是什么？"])
 
-# ================= 辅助函数 =================
+# ================= Helper functions =================
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     batch, num_key_value_heads, slen, head_dim = hidden_states.shape
     if n_rep == 1: return hidden_states
@@ -61,11 +60,6 @@ def apply_rotary_pos_emb_local(q, k, cos, sin):
     k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
 
-# ================= 模板定义 =================
-context_prefix = {"default": "{context}"}
-question_template = {"default": "{input}"}
-answer_prefix = {"default": "回答："}
-
 @dataclass
 class SampleData:
     context: str
@@ -73,7 +67,7 @@ class SampleData:
     sample_id: str = "0"
     task: str = "default"
 
-# ================= 核心 Recorder =================
+# ================= Core Recorder =================
 class Recorder:
     def __init__(self, config: AnalyzeConfig):
         self.config = config
@@ -229,7 +223,7 @@ class Recorder:
 
 recorder = None 
 
-# ================= 模型 Wrapper =================
+# ================= Model attention wrapper =================
 def custom_attn_forward_wrapper(layer_idx, original_forward, config_obj):
     def forward(self, hidden_states, *args, **kwargs):
         position_embeddings = kwargs.get('position_embeddings')
@@ -348,7 +342,7 @@ def process_samples(config_obj, samples):
 
 if __name__ == "__main__":
     conf = AnalyzeConfig()
-    data_samples = read_data(conf.dataset_path, conf.default_task_name)
+    data_samples = read_data(conf.dataset_path, "default")
     if not data_samples:
-        data_samples = [SampleData(context=conf.dummy_context, questions=conf.dummy_questions, sample_id="dummy_0", task=conf.default_task_name)]
+        data_samples = [SampleData(context=conf.dummy_context, questions=conf.dummy_questions, sample_id="dummy_0", task="default")]
     process_samples(conf, data_samples)

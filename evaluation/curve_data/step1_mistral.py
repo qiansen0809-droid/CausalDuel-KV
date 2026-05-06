@@ -26,7 +26,6 @@ class AnalyzeConfig:
     model_path: str = args.model_path
     dataset_path: str = args.dataset_path
     output_dir: str = args.output_dir
-    default_task_name: str = "dureader" 
     max_new_tokens: int = 64
     use_value_norm_weighting: bool = True
     # Default Mistral configuration parameters
@@ -36,8 +35,8 @@ class AnalyzeConfig:
     ea_n_sink: int = 4
     ea_use_covariance: bool = True
     ea_epsilon: float = 0.02
-    dummy_context: str = "The prospects for AI in scientific research are very broad." * 50
-    dummy_questions: List[str] = field(default_factory=lambda: ["What is the main idea of this passage?"])
+    dummy_context: str = "人工智能在科学研究中的应用前景非常广阔。" * 50
+    dummy_questions: List[str] = field(default_factory=lambda: ["这句话的主旨是什么？"])
 
 # ================= Helper functions (Mistral-specific) =================
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
@@ -370,7 +369,7 @@ def process_samples(config_obj, samples):
 
 if __name__ == "__main__":
     conf = AnalyzeConfig()
-    data_samples = read_data(conf.dataset_path, conf.default_task_name)
+    data_samples = read_data(conf.dataset_path, "default")
     if not data_samples:
-        data_samples = [SampleData(context=conf.dummy_context, questions=conf.dummy_questions, sample_id="dummy_0", task=conf.default_task_name)]
+        data_samples = [SampleData(context=conf.dummy_context, questions=conf.dummy_questions, sample_id="dummy_0", task="default")]
     process_samples(conf, data_samples)
