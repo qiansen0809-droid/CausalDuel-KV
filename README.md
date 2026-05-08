@@ -25,9 +25,20 @@ pip install transformers==4.53.0 fastparquet rouge nltk jieba fuzzywuzzy bert-sc
 
 ### Evaluation
 
+Run LU-KV (all three variants: lu_snapkv → lu_keydiff → lu_ea) on LongBench and RULER:
+
 ```bash
 cd evaluation
-bash ruler_evaluation.sh
+bash lukv_longbench.sh   # LongBench (16 tasks)
+bash lukv_ruler.sh       # RULER
+```
+
+Run all baseline methods (SnapKV, KeyDiff, EA and their AdaKV / PyramidKV variants):
+
+```bash
+cd evaluation
+bash baseline_longbench.sh
+bash baseline_ruler.sh
 ```
 
 ### Save Curve Data
