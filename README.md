@@ -47,8 +47,3 @@ bash baseline_ruler.sh
 cd evaluation
 bash curve_data/generate_curve.sh
 ```
-> [!IMPORTANT]  
-> We focus on compression during the pre-filling phase as the KV cache becomes a bottleneck for long-context sequence (100k - 1M tokens) which are essentially long context prompts. This would typically apply to improving prompt caching systems.
-
-> [!NOTE]  
-> Use `model_kwargs={"attn_implementation":"flash_attention_2"}` to enable flash attention. To use the press `ObservedAttentionPress`, you need to specify `model_kwargs={"attn_implementation":"eager"}` as this press requires to materialize the attention weights
