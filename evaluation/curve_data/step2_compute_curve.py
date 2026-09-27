@@ -162,6 +162,28 @@ def compute_optimal_budget_for_pair(
     return results
 
 
+def exact_runtime_keep_counts(local_prune_ratios, length):
+    """
+    Reproduce LUPress._curve_keep_counts for one layer.
+
+    LU-KV stores static per-head prune ratios. At runtime those ratios are
+    converted to integer keep counts by flooring each head and distributing
+    the rounded layer-level remainder to the largest fractional parts.
+    """
+    ratios = np.asarray(local_prune_ratios, dtype=np.float64)
+    ideal = (1.0 - ratios) * length
+    total_keep_target = int(np.round(ideal.sum()))
+    keep_counts = np.floor(ideal).astype(np.int64)
+
+    remainder = total_keep_target - int(keep_counts.sum())
+    if remainder > 0:
+        fractional = ideal - keep_counts
+        order = np.argsort(-fractional, kind="stable")
+        keep_counts[order[: min(remainder, len(keep_counts))]] += 1
+
+    return np.clip(keep_counts, 1, length)
+
+
 def compute_boundary_marginals_for_pair(
     data_gt,
     data_pred,
@@ -220,18 +242,30 @@ def compute_boundary_marginals_for_pair(
         if global_x > limit_ratio:
             continue
 
+        # Mirror the exact integer conversion used by runtime LUPress,
+        # including the per-layer fractional remainder distribution.
+        keep_counts_by_layer = np.stack(
+            [
+                exact_runtime_keep_counts(static_budget_curve[i, r], length)
+                for r in range(rows)
+            ],
+            axis=0,
+        )
+
         for r in range(rows):
             for c in range(cols):
-                local_prune_ratio = float(static_budget_curve[i, r, c])
-                keep_count = int(round((1.0 - local_prune_ratio) * length))
-                keep_count = max(min_keep_limit, min(length, keep_count))
+                keep_count = int(keep_counts_by_layer[r, c])
 
+                # priority_scores_mid excludes sink/window positions. If the
+                # transferred static profile falls inside that protected span,
+                # the local marginal cannot be recovered from this mid-token
+                # utility vector, so leave the corresponding entry NaN.
                 mid_keep = keep_count - protected
-                mid_keep = max(0, min(eff_len, mid_keep))
 
                 if (
                     keep_count - marginal_step_tokens >= min_keep_limit
                     and mid_keep >= marginal_step_tokens
+                    and mid_keep <= eff_len
                 ):
                     start = mid_keep - marginal_step_tokens
                     remove_cost[i, r, c] = float(
@@ -239,7 +273,8 @@ def compute_boundary_marginals_for_pair(
                     )
 
                 if (
-                    keep_count + marginal_step_tokens <= length
+                    keep_count >= protected
+                    and keep_count + marginal_step_tokens <= length
                     and mid_keep + marginal_step_tokens <= eff_len
                 ):
                     stop = mid_keep + marginal_step_tokens
@@ -372,6 +407,17 @@ if __name__ == "__main__":
             "Use the same value as Gate-0 --swap-size."
         ),
     )
+    parser.add_argument(
+        "--static_budget_curve_path",
+        type=str,
+        default=None,
+        help=(
+            "Optional existing LU-KV static allocation curve (.npy) whose "
+            "boundary should define Gate-0 marginals. Use this when Gate-0 "
+            "runtime uses the official bundled LU-KV curve, so donor/receiver "
+            "marginals are sampled at exactly the same allocation profile."
+        ),
+    )
     args = parser.parse_args()
 
     method_configs = {}
@@ -458,11 +504,27 @@ if __name__ == "__main__":
             print()
             continue
 
+        marginal_budget_curve = avg_data
+        marginal_budget_source = out_path
+
+        if args.static_budget_curve_path is not None:
+            marginal_budget_curve = np.load(args.static_budget_curve_path)
+            if marginal_budget_curve.shape != avg_data.shape:
+                raise ValueError(
+                    "external static budget curve shape mismatch: "
+                    f"expected {avg_data.shape}, got {marginal_budget_curve.shape}"
+                )
+            marginal_budget_source = args.static_budget_curve_path
+            print(
+                f"[{method}] Gate-0 marginals will use external runtime "
+                f"allocation curve: {marginal_budget_source}"
+            )
+
         marginal_tasks = [
             (
                 q_file,
                 pred_path,
-                avg_data,
+                marginal_budget_curve,
                 sink_size,
                 window_size,
                 args.marginal_step_tokens,
@@ -471,10 +533,10 @@ if __name__ == "__main__":
             for q_file, pred_path in pair_tasks
         ]
 
-        remove_sum = np.zeros_like(avg_data, dtype=np.float64)
-        gain_sum = np.zeros_like(avg_data, dtype=np.float64)
-        remove_count = np.zeros_like(avg_data, dtype=np.int32)
-        gain_count = np.zeros_like(avg_data, dtype=np.int32)
+        remove_sum = np.zeros_like(marginal_budget_curve, dtype=np.float64)
+        gain_sum = np.zeros_like(marginal_budget_curve, dtype=np.float64)
+        remove_count = np.zeros_like(marginal_budget_curve, dtype=np.int32)
+        gain_count = np.zeros_like(marginal_budget_curve, dtype=np.int32)
         marginal_valid_pairs = 0
 
         with mp.Pool(processes=args.num_workers) as pool:
@@ -513,7 +575,8 @@ if __name__ == "__main__":
             next_gain=avg_gain,
             valid_remove_count=remove_count,
             valid_gain_count=gain_count,
-            budget_prune_ratio=avg_data,
+            budget_prune_ratio=marginal_budget_curve,
+            static_budget_curve_path=np.array(marginal_budget_source),
             global_compression_ratio=np.arange(1, 100, dtype=np.float64) / 100.0,
             marginal_step_tokens=np.array(args.marginal_step_tokens, dtype=np.int64),
             sink_size=np.array(sink_size, dtype=np.int64),
