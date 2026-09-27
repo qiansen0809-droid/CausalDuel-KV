@@ -1,18 +1,21 @@
 # CausalDuel-KV Gate 0 POC
 
-This branch implements the first scientific feasibility check around the official LU-KV codebase.
+This branch implements the first feasibility check for the pre-registered CausalDuel-KV idea on top of the official LU-KV codebase.
 
 ## Goal
 
 Before building cache-fork, page sharing, successive racing, or serving integration, test one narrow question:
 
-> Starting from the LU-KV allocation, does a small budget-preserving donor/receiver swap that improves prompt-tail behavior also improve a teacher-forced continuation objective?
+> Starting from the LU-KV allocation, does a small budget-preserving donor/receiver swap that improves prompt-tail behavior also improve an offline answer-related objective?
 
-The first POC intentionally validates the algorithmic signal using LU-KV's existing logical head masking. It does **not** claim physical ragged-cache memory savings. Physical page/block validation remains Gate -1.
+The branch intentionally separates:
 
-## What changed
+- **Gate 0:** scientific signal validation using LU-KV's existing logical head masking;
+- **Gate -1:** physical ragged/page-cache validation and actual memory movement.
 
-### 1. Exact per-KV-head budget override
+This branch does not yet claim physical cache-page savings.
+
+## 1. Exact per-KV-head budget override
 
 `kvpress/presses/LU_press.py` now accepts:
 
@@ -20,32 +23,116 @@ The first POC intentionally validates the algorithmic signal using LU-KV's exist
 keep_counts_override: dict[int, list[int]]
 ```
 
-The mapping is:
+Mapping:
 
 ```text
 layer_idx -> [keep_count_head0, keep_count_head1, ...]
 ```
 
-If a layer is overridden, the explicit keep counts replace the LU-KV static profile for that layer. The wrapped scorer is unchanged, so Gate 0 varies only budget allocation.
+If a layer is overridden, those exact keep counts replace LU-KV's static profile for that layer. The wrapped token scorer is unchanged, so Gate 0 varies only budget allocation.
 
 The implementation validates:
 
 - one count per runtime KV head;
-- donor budgets cannot go below the protected sink + recent window;
+- donor budgets cannot cross the protected sink + recent-window floor;
 - receiver budgets cannot exceed prefix length;
-- batch size is 1 for the current head-wise masking path.
+- the current head-wise masking path uses batch size 1.
 
-The exact counts used during a prefill are exposed through `last_keep_counts`.
+The exact counts used during prefill are exposed through `last_keep_counts`.
 
-### 2. Budget-preserving swap construction
+## 2. LU-KV boundary marginal export
 
-`build_candidates.py` provides a small donor/receiver representation and checks that every swap preserves the exact global keep count.
+The original LU-KV solver already computes scorer-aligned oracle utilities and applies convex-hull smoothing, but its repository only saves the final static allocation table.
 
-For the engineering POC, the fallback ordering chooses large-budget heads as donors and small-budget heads as receivers. This is only a smoke-test heuristic.
+For Gate 0, `evaluation/curve_data/step2_compute_curve.py` now has an optional export:
 
-**For the actual MiniGate, replace this fallback with LU-KV remove-cost / next-page-gain rankings from the offline utility curves.**
+```text
+--export_marginals
+--marginal_step_tokens N
+```
 
-### 3. Prompt-tail replay
+It performs a second offline pass and samples the convex-hull-smoothed long-horizon utility exactly at the **final averaged static LU-KV budget boundary**.
+
+For every global compression ratio, layer, and KV head it exports:
+
+- `remove_cost`: long-horizon oracle utility lost by removing one Gate-0 step;
+- `next_gain`: long-horizon oracle utility recovered by adding one Gate-0 step;
+- the matching static budget curve and metadata.
+
+The output is an `.npz` file such as:
+
+```text
+gate0_lu_global_snapkv_sink4_win32_marginal_step16.npz
+```
+
+This export reuses LU-KV's own scorer alignment and convex-hull relaxation. It is an additional Gate-0 diagnostic; it does not modify the LU-KV solver or claim to be a new allocation algorithm.
+
+## 3. Build the marginal profile
+
+Use a **separate offline LU profiling dataset**. Do not build this profile from MiniGate, calibration, or held-out test prompts.
+
+```bash
+MODEL_PATH=meta-llama/Meta-Llama-3.1-8B-Instruct \
+DATASET_PATH=/path/to/separate_lu_profile.jsonl \
+CUDA_DEVICE=0 \
+SWAP_SIZE=16 \
+NUM_WORKERS=8 \
+bash evaluation/gate0/build_lu_marginal_profile.sh
+```
+
+The script runs LU-KV's Step 1 recorder and the modified Step 2 solver/export.
+
+Important: the author repository references a local `novel.jsonl`, but that file is not included in the public fork. You therefore need to provide a separate profiling JSONL with the same basic fields expected by `step1_llama.py`, for example:
+
+```json
+{"context": "...long context...", "questions": ["...question..."], "task": "profile"}
+```
+
+## 4. Formal Gate-0 candidate construction
+
+`build_candidates.py` implements the registered neighborhood policy.
+
+### Donor pool
+
+Among units that can legally donate one step:
+
+```text
+sort by LU remove_cost ascending
+take 3-4 donors
+```
+
+### Receiver pool
+
+Among units that can legally receive one step:
+
+```text
+sort by LU next_gain descending
+take 3-4 receivers
+```
+
+### Six to eight swaps
+
+Candidates are selected to cover:
+
+- 2-3 LU-favored swaps with largest `next_gain - remove_cost`;
+- 3-4 near-boundary swaps with smallest absolute marginal delta;
+- 1 low-priority but legal control swap.
+
+For six candidates this becomes:
+
+```text
+2 promising + 3 near-boundary + 1 control
+```
+
+For eight candidates:
+
+```text
+3 promising + 4 near-boundary + 1 control
+```
+
+Every candidate is checked for exact global budget conservation.
+
+## 5. Prompt-tail replay
 
 `suffix_replay.py`:
 
@@ -54,9 +141,9 @@ For the engineering POC, the fallback ordering chooses large-budget heads as don
 3. teacher-forces the known prompt suffix;
 4. returns suffix logits.
 
-The same suffix is replayed for FullKV, LU-KV baseline, and every swap candidate.
+The same suffix is replayed for FullKV, the LU-KV baseline, and every swap candidate.
 
-### 4. Metrics
+## 6. Metrics
 
 `metrics.py` currently implements:
 
@@ -66,29 +153,34 @@ The same suffix is replayed for FullKV, LU-KV baseline, and every swap candidate
 - top-k agreement;
 - teacher-forced continuation NLL.
 
-For the first POC, suffix-token NLL is used as a dense sanity target. The registered Gate 0 design still requires **gold-answer NLL** as the offline ground truth in the MiniGate.
+For the first engineering POC, suffix-token NLL is a dense sanity target.
 
-## First run
+For the registered MiniGate, the primary offline direction label must be **gold-answer NLL**. The answer is never allowed to choose the online budget; it is only an offline truth signal.
 
-Use BF16 for the first experiment.
+## 7. Run the formal six-swap POC
+
+After exporting the marginal profile:
 
 ```bash
 python -m evaluation.gate0.run_poc \
   --model meta-llama/Meta-Llama-3.1-8B-Instruct \
   --budget-curve-path evaluation/curve_data/llama-3.1-8b/snapkv_maxpool_sink4_win_32_llama_avg_ratio.npy \
+  --marginal-profile-path results/gate0/lu_profile/gate0_lu_global_snapkv_sink4_win32_marginal_step16.npz \
   --text-file /path/to/one_long_prompt.txt \
   --compression-ratio 0.80 \
   --suffix-len 64 \
   --swap-size 16 \
-  --num-swaps 3 \
+  --num-swaps 6 \
   --max-tokens 8192 \
   --dtype bfloat16 \
   --output results/gate0/poc_sample_001.json
 ```
 
-The current `compression-ratio=0.80` means 80% pruning / roughly 20% retention, matching LU-KV's existing convention.
+`compression-ratio=0.80` follows LU-KV's convention: 80% pruning / roughly 20% retention.
 
-## Engineering sanity checks
+If `--marginal-profile-path` is omitted, `run_poc.py` falls back to the old three-swap engineering smoke test. That fallback is not the formal Gate-0 candidate policy.
+
+## 8. Engineering sanity checks
 
 Before interpreting any scientific result, verify:
 
@@ -98,22 +190,26 @@ Before interpreting any scientific result, verify:
 4. A donor loses exactly `swap-size` entries and the receiver gains exactly the same amount.
 5. No donor crosses the sink/recent-window minimum.
 6. All candidates use the same SnapKV token scorer.
+7. Formal candidates record finite LU remove cost / next gain.
+8. The marginal profile `marginal_step_tokens` exactly matches `--swap-size`.
 
-## Current limitation
+## 9. Current limitation
 
 The upstream LU-KV head-wise path stores the original K/V tensors and records pruned positions in `module.masked_key_indices`. During decoding, the attention patch replaces masked keys with fake keys so they receive approximately zero attention.
 
-Therefore this branch is suitable for **Gate 0 signal validation**, but it does not yet establish that donor/receiver swaps move physical cache pages or reduce peak memory. That requires the separate Gate -1 paged/ragged-cache implementation audit.
+Therefore this branch is suitable for **Gate 0 signal validation**, but it does not establish that donor/receiver swaps move physical cache pages or reduce peak memory.
 
-## Next step after the 2-sample POC
+That remains the separate Gate -1 paged/ragged-cache implementation audit.
 
-If the engineering sanity checks pass:
+## 10. Next milestone
 
-- run 24 independent 8K prompts;
+Once the two-sample engineering check passes:
+
+- run 24 independent 8K MiniGate prompts;
 - use six swaps per prompt;
 - evaluate 32- and 64-token probes;
-- add LU marginal, attention, entropy, and local reconstruction proxies;
-- use gold-answer NLL as the primary dense offline direction label;
+- add attention mass, entropy, and local reconstruction proxies;
+- add gold-answer NLL as the primary dense offline label;
 - compute prompt-clustered sign accuracy and within-prompt Spearman correlation.
 
 Stop if the behavior signal does not exceed the pre-registered MiniGate threshold or does not beat the strongest cheap proxy.
