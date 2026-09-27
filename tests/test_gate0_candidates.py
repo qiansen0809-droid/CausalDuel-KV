@@ -1,4 +1,8 @@
 import numpy as np
+import pytest
+import torch
+
+from kvpress import LUPress, SnapKVPress
 
 from evaluation.gate0.build_candidates import (
     SwapCandidate,
@@ -139,3 +143,54 @@ def test_load_lu_marginal_slice(tmp_path):
     assert profile.calibration_pairs == 30
     assert np.all(profile.remove_cost == 3.0)
     assert np.all(profile.next_gain == 7.0)
+
+
+
+def test_lu_override_allows_unchanged_official_budget_below_protected_span(tmp_path):
+    curve = np.zeros((99, 1, 2), dtype=np.float32)
+    curve[79, 0] = np.array([0.99, 0.985], dtype=np.float32)
+    path = tmp_path / "curve.npy"
+    np.save(path, curve)
+
+    press = LUPress(
+        press=SnapKVPress(compression_ratio=0.80),
+        budget_curve_path=str(path),
+        sink=4,
+        window=32,
+    )
+    press._post_setup_init()
+
+    baseline = press.get_keep_counts(
+        layer_idx=0,
+        num_heads=2,
+        seq_len=2048,
+        device=torch.device("cpu"),
+    )
+    assert baseline.tolist() == [20, 31]
+
+    press.set_keep_counts_override({0: baseline.tolist()})
+    unchanged = press.get_keep_counts(
+        layer_idx=0,
+        num_heads=2,
+        seq_len=2048,
+        device=torch.device("cpu"),
+    )
+    assert unchanged.tolist() == [20, 31]
+
+    press.set_keep_counts_override({0: [21, 31]})
+    upward = press.get_keep_counts(
+        layer_idx=0,
+        num_heads=2,
+        seq_len=2048,
+        device=torch.device("cpu"),
+    )
+    assert upward.tolist() == [21, 31]
+
+    press.set_keep_counts_override({0: [19, 31]})
+    with pytest.raises(ValueError, match="donor override"):
+        press.get_keep_counts(
+            layer_idx=0,
+            num_heads=2,
+            seq_len=2048,
+            device=torch.device("cpu"),
+        )
