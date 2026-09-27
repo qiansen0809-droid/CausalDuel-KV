@@ -13,8 +13,14 @@ NUM_WORKERS="${NUM_WORKERS:-8}"
 MID_DATA_DIR="${MID_DATA_DIR:-$ROOT_DIR/results/gate0/lu_profile_raw}"
 OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/results/gate0/lu_profile}"
 OUTPUT_PREFIX="${OUTPUT_PREFIX:-gate0_lu_global}"
+STATIC_BUDGET_CURVE="${STATIC_BUDGET_CURVE:-$CURVE_DIR/llama-3.1-8b/snapkv_maxpool_sink4_win_32_llama_avg_ratio.npy}"
 
 mkdir -p "$MID_DATA_DIR" "$OUTPUT_DIR"
+
+if [[ ! -f "$STATIC_BUDGET_CURVE" ]]; then
+  echo "Static LU-KV budget curve not found: $STATIC_BUDGET_CURVE" >&2
+  exit 1
+fi
 
 echo "[Gate0] Step 1/2: extract LU-KV long-horizon oracle/scorer data"
 python "$CURVE_DIR/step1_llama.py" \
@@ -33,12 +39,15 @@ python "$CURVE_DIR/step2_compute_curve.py" \
   --layerwise \
   --num_workers "$NUM_WORKERS" \
   --export_marginals \
-  --marginal_step_tokens "$SWAP_SIZE"
+  --marginal_step_tokens "$SWAP_SIZE" \
+  --static_budget_curve_path "$STATIC_BUDGET_CURVE"
 
 echo
 echo "Expected outputs:"
 echo "  $OUTPUT_DIR/${OUTPUT_PREFIX}_snapkv_sink4_win32.npy"
 echo "  $OUTPUT_DIR/${OUTPUT_PREFIX}_snapkv_sink4_win32_marginal_step${SWAP_SIZE}.npz"
+echo "Marginal boundary source:"
+echo "  $STATIC_BUDGET_CURVE"
 echo
 echo "Important: DATASET_PATH is offline LU profiling data. Do not use Gate-0 MiniGate,"
 echo "calibration, or held-out test prompts to build this marginal profile."
