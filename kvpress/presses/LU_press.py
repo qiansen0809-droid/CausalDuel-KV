@@ -141,12 +141,39 @@ class LUPress(BasePress):
             )
 
         min_keep = max(1, self._protected_count(seq_len))
-        if torch.any(keep_counts < min_keep):
+
+        # The official LU-KV static curve can assign fewer than sink+window
+        # positions to some heads at high compression ratios. In that case the
+        # sink/window settings are priority boosts in the token scorer, not a
+        # hard per-head allocation floor. Gate 0 must therefore allow an
+        # unchanged (or upward-adjusted) official LU budget below min_keep.
+        #
+        # We only forbid a *donor move* from reducing a head below the
+        # sink/window floor. This preserves the registered donor constraint
+        # without rejecting the LU baseline itself.
+        curve_counts = self._curve_keep_counts(
+            layer_idx=layer_idx,
+            num_heads=num_heads,
+            seq_len=seq_len,
+            device=device,
+        )
+        if curve_counts is not None:
+            is_donor_move = keep_counts < curve_counts
+            invalid_donor = is_donor_move & (keep_counts < min_keep)
+            if torch.any(invalid_donor):
+                bad = keep_counts[invalid_donor].tolist()
+                raise ValueError(
+                    f"Gate-0 donor override violates sink/window protection at layer {layer_idx}. "
+                    f"A donor head must keep at least {min_keep} positions; invalid counts: {bad}."
+                )
+        elif torch.any(keep_counts < min_keep):
             bad = keep_counts[keep_counts < min_keep].tolist()
             raise ValueError(
                 f"Gate-0 override violates sink/window protection at layer {layer_idx}. "
-                f"Each head must keep at least {min_keep} positions; invalid counts: {bad}."
+                f"Each head must keep at least {min_keep} positions when no LU curve is available; "
+                f"invalid counts: {bad}."
             )
+
         if torch.any(keep_counts > seq_len):
             raise ValueError(
                 f"Gate-0 override exceeds prefix length {seq_len} at layer {layer_idx}."
