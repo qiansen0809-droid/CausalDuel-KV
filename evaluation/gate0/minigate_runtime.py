@@ -251,3 +251,80 @@ def greedy_generate(
         logits = outputs.logits[:, -1, :]
 
     return tokenizer.decode(generated, skip_special_tokens=True).strip()
+
+
+
+@torch.inference_mode()
+def greedy_reference_trace(
+    model,
+    prompt_state: PromptState,
+    steps: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Generate a short greedy continuation from the FullKV prompt state while
+    recording the predictive distribution at every answer position.
+
+    Returns:
+      token_ids: [1, steps] FullKV-generated pseudo-answer tokens
+      logits:    [1, steps, vocab] FullKV logits that predicted those tokens
+
+    This trace uses no gold answer and is intended only as an online behavioral
+    teacher for Gate-0-v2.
+    """
+    if steps <= 0:
+        raise ValueError("steps must be positive")
+
+    cache = clone_cache(prompt_state.cache)
+    logits = prompt_state.first_answer_logits
+    token_ids = []
+    logits_trace = []
+
+    for _ in range(int(steps)):
+        logits_trace.append(logits.detach())
+        next_id = torch.argmax(logits, dim=-1)
+        token_ids.append(next_id.detach())
+
+        outputs = model(
+            input_ids=next_id.unsqueeze(1),
+            past_key_values=cache,
+            use_cache=True,
+        )
+        logits = outputs.logits[:, -1, :]
+
+    return (
+        torch.stack(token_ids, dim=1),
+        torch.stack(logits_trace, dim=1),
+    )
+
+
+@torch.inference_mode()
+def teacher_force_trace(
+    model,
+    prompt_state: PromptState,
+    token_ids: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Score a fixed pseudo-answer continuation from an arbitrary prompt state.
+
+    token_ids are generated once by the FullKV teacher. LU/candidate states
+    teacher-force exactly the same tokens, so behavioral metrics compare the
+    predictive distributions on a common future-facing trajectory.
+    """
+    if token_ids.dim() != 2 or token_ids.shape[0] != 1:
+        raise ValueError("token_ids must have shape [1, time]")
+    if token_ids.shape[1] == 0:
+        raise ValueError("token_ids must not be empty")
+
+    token_ids = token_ids.to(prompt_state.first_answer_logits.device)
+    first = prompt_state.first_answer_logits.unsqueeze(1)
+
+    if token_ids.shape[1] == 1:
+        return first
+
+    cache = clone_cache(prompt_state.cache)
+    outputs = model(
+        input_ids=token_ids[:, :-1],
+        past_key_values=cache,
+        use_cache=True,
+    )
+    return torch.cat([first, outputs.logits], dim=1)
