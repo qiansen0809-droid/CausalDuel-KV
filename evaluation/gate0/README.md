@@ -320,3 +320,45 @@ python -m evaluation.gate0.summarize_minigate \
 The summary reports behavioral-vs-answer-NLL sign accuracy, LU-marginal sign
 accuracy, a prompt-cluster bootstrap comparison, fallback rate, local-oracle
 gap recovery, FullKV gap recovery, and task-score aggregates.
+
+
+## 6. Gate-0-v2 exploratory diagnosis: answer-onset duel
+
+The preregistered query-tail MiniGate should be analyzed as-is. If its primary
+16-token query-tail overlap signal fails to improve reliably over the LU prior,
+do not retune the old suffix signal on the same 24 prompts.
+
+A separate exploratory diagnosis tests a future-facing signal at answer onset.
+The FullKV teacher greedily produces a short pseudo-answer trajectory with no
+gold answer. LU and every fixed candidate teacher-force exactly those same
+pseudo-answer tokens. Behavioral metrics are computed over the first 1, 4, and
+8 answer positions.
+
+This changes the question from "can the compressed cache reconstruct the end of
+the already-seen query?" to "does the compressed cache preserve FullKV behavior
+where answer generation begins?" Gold answers remain offline labels only.
+
+Run the exploratory discovery set:
+
+```bash
+python -m evaluation.gate0.run_answer_onset \
+  --model /path/to/Meta-Llama-3.1-8B-Instruct \
+  --data results/gate0/minigate/minigate_24.jsonl \
+  --budget-curve-path evaluation/curve_data/llama-3.1-8b/snapkv_maxpool_sink4_win_32_llama_avg_ratio.npy \
+  --marginal-profile-path results/gate0/lu_profile/gate0_lu_global_snapkv_sink4_win32_marginal_step16.npz \
+  --output-dir results/gate0/answer_onset/discovery24 \
+  --trace-lens 1 4 8
+```
+
+Summarize with:
+
+```bash
+python -m evaluation.gate0.summarize_answer_onset \
+  --raw-dir results/gate0/answer_onset/discovery24 \
+  --output results/gate0/answer_onset/discovery24_summary.json
+```
+
+The original 24 prompts are a discovery/diagnosis set for this post-hoc
+hypothesis. If an answer-onset signal is promising, freeze one signal and one
+trace length, then evaluate it on a fresh non-overlapping confirmatory set.
+Do not report a same-set best-of-1/4/8 choice as confirmatory evidence.
