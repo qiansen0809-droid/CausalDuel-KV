@@ -244,16 +244,19 @@ The protocol contains 24 prompts:
 
 - 8 RULER retrieval prompts: one from each of the eight NIAH retrieval subtasks
   in the public `simonjegou/ruler` 8192-token configuration;
-- 8 LongBench single-document QA prompts: 3 NarrativeQA, 3 Qasper, and
-  2 MultiFieldQA-en;
-- 8 LongBench multi-document QA prompts: 3 HotpotQA, 3 2WikiMQA, and
-  2 MuSiQue.
+- 8 LongBench single-document QA prompts drawn from NarrativeQA, Qasper, and
+  MultiFieldQA-en;
+- 8 LongBench multi-document QA prompts drawn from HotpotQA, 2WikiMQA, and
+  MuSiQue.
 
 LongBench uses the public `Xnhyacinth/LongBench` conversion created by the
 LU-KV evaluation code, so context/question/answer-prefix separation matches the
-upstream LU-KV inference protocol. Natural LongBench contexts are selected by
-Llama-3.1 tokenizer length near 8K; benchmark contexts are not silently
-truncated.
+upstream LU-KV inference protocol. Natural LongBench contexts are selected by Llama-3.1 tokenizer length near 8K;
+benchmark contexts are not silently truncated. Within each 8-prompt LongBench
+family, the sampler first reserves two distinct contexts per task, then fills
+the remaining two slots with the closest unused contexts to the 8K target.
+Selection depends only on task identity and tokenizer length, never on model
+outputs or answer quality.
 
 Prepare and inspect the set:
 
