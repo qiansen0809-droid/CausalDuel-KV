@@ -37,25 +37,29 @@ def sign_accuracy(rows, predictor_key):
 
 
 def bootstrap_prompt_difference(rows, a_key, b_key, n_boot, seed):
-    prompt_ids = sorted({r["id"] for r in rows})
-    if not prompt_ids:
+    cluster_ids = sorted({r.get("context_cluster", r["id"]) for r in rows})
+    if not cluster_ids:
         return None
 
     grouped = {
-        pid: [r for r in rows if r["id"] == pid and sgn(r["answer_nll_gain"]) != 0]
-        for pid in prompt_ids
+        cid: [
+            r for r in rows
+            if r.get("context_cluster", r["id"]) == cid
+            and sgn(r["answer_nll_gain"]) != 0
+        ]
+        for cid in cluster_ids
     }
-    prompt_ids = [pid for pid in prompt_ids if grouped[pid]]
-    if not prompt_ids:
+    cluster_ids = [cid for cid in cluster_ids if grouped[cid]]
+    if not cluster_ids:
         return None
 
     rng = np.random.default_rng(seed)
     diffs = []
     for _ in range(n_boot):
-        sampled = rng.choice(prompt_ids, size=len(prompt_ids), replace=True)
+        sampled = rng.choice(cluster_ids, size=len(cluster_ids), replace=True)
         boot_rows = []
-        for pid in sampled:
-            boot_rows.extend(grouped[str(pid)])
+        for cid in sampled:
+            boot_rows.extend(grouped[str(cid)])
         a, _ = sign_accuracy(boot_rows, a_key)
         b, _ = sign_accuracy(boot_rows, b_key)
         diffs.append(a - b)
@@ -90,6 +94,7 @@ def flatten_pairs(payloads):
                 rows.append(
                     {
                         "id": p["id"],
+                        "context_cluster": p.get("context_sha256") or p["id"],
                         "family": p["family"],
                         "task": p["task"],
                         "candidate": cand["name"],
