@@ -17,6 +17,9 @@ parser.add_argument("--model_path", type=str, required=True)
 parser.add_argument("--dataset_path", type=str, required=True)
 parser.add_argument("--output_dir", type=str, required=True)
 parser.add_argument("--cuda_device", type=str, default="0")
+parser.add_argument("--max_new_tokens", type=int, default=64)
+parser.add_argument("--answer_prefix", type=str, default="回答：")
+parser.add_argument("--seed", type=int, default=42)
 args = parser.parse_args()
 
 os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda_device
@@ -26,7 +29,9 @@ class AnalyzeConfig:
     model_path: str = args.model_path
     dataset_path: str = args.dataset_path
     output_dir: str = args.output_dir
-    max_new_tokens: int = 64
+    max_new_tokens: int = args.max_new_tokens
+    answer_prefix: str = args.answer_prefix
+    seed: int = args.seed
     use_value_norm_weighting: bool = True
     snapkv_window_size: int = 32
     snapkv_kernel_size: int = 7
@@ -329,14 +334,34 @@ def process_samples(config_obj, samples):
             np.save(os.path.join(sample_dir, "ea.npy"), torch.stack([recorder.ea_table[i] for i in range(num_layers)]).numpy())
         
         for q_idx, question in enumerate(sample.questions):
-            suffix_tokens = tokenizer.encode(question + "回答：", add_special_tokens=False, return_tensors="pt").to(model.device)
+            suffix_tokens = tokenizer.encode(
+                question + config_obj.answer_prefix,
+                add_special_tokens=False,
+                return_tensors="pt",
+            ).to(model.device)
             input_ids = torch.cat([ctx_tokens, suffix_tokens], dim=1)
             attention_mask = torch.ones(input_ids.shape, dtype=torch.long, device=model.device)
             
             recorder.reset_for_new_question(ctx_len, num_layers, num_kv_heads, model.device)
-            recorder.is_decoding = True 
+            recorder.is_decoding = True
+
+            # Keep the upstream sampling protocol but make each context/question
+            # replay reproducible across profiling runs.
+            question_seed = config_obj.seed + s_idx * 1000 + q_idx
+            torch.manual_seed(question_seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(question_seed)
+
             with torch.no_grad():
-                model.generate(input_ids=input_ids, attention_mask=attention_mask, max_new_tokens=config_obj.max_new_tokens, do_sample=True, temperature=0.7, pad_token_id=tokenizer.eos_token_id, use_cache=True)
+                model.generate(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=config_obj.max_new_tokens,
+                    do_sample=True,
+                    temperature=0.7,
+                    pad_token_id=tokenizer.eos_token_id,
+                    use_cache=True,
+                )
             recorder.is_decoding = False
             np.save(os.path.join(sample_dir, f"question_{q_idx}.npy"), recorder.max_attn_table.cpu().numpy())
 
