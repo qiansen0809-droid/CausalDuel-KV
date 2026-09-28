@@ -233,3 +233,82 @@ Once the two-sample engineering check passes:
 - compute prompt-clustered sign accuracy and within-prompt Spearman correlation.
 
 Stop if the behavior signal does not exceed the pre-registered MiniGate threshold or does not beat the strongest cheap proxy.
+
+
+## 5. MiniGate: fixed 24-prompt signal test
+
+After the LU marginal profile and the global 6-swap candidate policy are frozen,
+prepare the fixed MiniGate set before looking at any model outcomes.
+
+The protocol contains 24 prompts:
+
+- 8 RULER retrieval prompts: one from each of the eight NIAH retrieval subtasks
+  in the public `simonjegou/ruler` 8192-token configuration;
+- 8 LongBench single-document QA prompts: 3 NarrativeQA, 3 Qasper, and
+  2 MultiFieldQA-en;
+- 8 LongBench multi-document QA prompts: 3 HotpotQA, 3 2WikiMQA, and
+  2 MuSiQue.
+
+LongBench uses the public `Xnhyacinth/LongBench` conversion created by the
+LU-KV evaluation code, so context/question/answer-prefix separation matches the
+upstream LU-KV inference protocol. Natural LongBench contexts are selected by
+Llama-3.1 tokenizer length near 8K; benchmark contexts are not silently
+truncated.
+
+Prepare and inspect the set:
+
+```bash
+python -m evaluation.gate0.prepare_minigate \
+  --model /path/to/Meta-Llama-3.1-8B-Instruct
+```
+
+The generated JSONL is local experiment data and should not be committed to the
+public repository. The manifest records dataset revisions, source indices,
+tasks, answers, and exact tokenizer lengths.
+
+### MiniGate runtime semantics
+
+For every condition, only the benchmark **context** is compressed. The question
+and answer prefix are appended afterwards without another compression step,
+matching the upstream LU-KV evaluation protocol.
+
+Each prompt evaluates:
+
+1. FullKV;
+2. the frozen LU-KV baseline;
+3. six same-total-budget donor->receiver swaps:
+   - 2 strongly LU-favored,
+   - 3 genuine near-zero LU-marginal probes with both signs when possible,
+   - 1 strongly LU-unfavored control.
+
+Gold answers are never used for candidate construction or online behavioral
+selection. They are used only after the candidate has been fixed, as an offline
+label through teacher-forced answer NLL and the benchmark task metric.
+
+Behavioral probes default to 32 and 64 tokens from the tail of the
+question+answer-prefix. The expensive context prefill is shared across probe
+lengths for each condition.
+
+A one-prompt engineering pilot can be run with:
+
+```bash
+python -m evaluation.gate0.run_minigate \
+  --model /path/to/Meta-Llama-3.1-8B-Instruct \
+  --data results/gate0/minigate/minigate_24.jsonl \
+  --budget-curve-path evaluation/curve_data/llama-3.1-8b/snapkv_maxpool_sink4_win_32_llama_avg_ratio.npy \
+  --marginal-profile-path results/gate0/lu_profile/gate0_lu_global_snapkv_sink4_win32_marginal_step16.npz \
+  --limit 1
+```
+
+After the pilot passes, remove `--limit 1` for the frozen 24-prompt run.
+
+Summarize completed per-prompt JSON outputs with:
+
+```bash
+python -m evaluation.gate0.summarize_minigate \
+  --raw-dir results/gate0/minigate/raw
+```
+
+The summary reports behavioral-vs-answer-NLL sign accuracy, LU-marginal sign
+accuracy, a prompt-cluster bootstrap comparison, fallback rate, local-oracle
+gap recovery, FullKV gap recovery, and task-score aggregates.
