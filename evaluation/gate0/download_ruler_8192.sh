@@ -25,7 +25,7 @@ for attempt in range(1, 21):
             repo_id="simonjegou/ruler",
             repo_type="dataset",
             filename="8192/test-00000-of-00001.parquet",
-            revision="24adcea",
+            revision="24adceac8a0e6532936e8d721cd9e9084d2e4686",
             local_dir=str(out.parent),
             local_dir_use_symlinks=False,
         )
