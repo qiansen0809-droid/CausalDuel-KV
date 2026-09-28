@@ -18,6 +18,10 @@ OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/results/gate0/lu_profile}"
 OUTPUT_PREFIX="${OUTPUT_PREFIX:-gate0_lu_global}"
 STATIC_BUDGET_CURVE="${STATIC_BUDGET_CURVE:-$CURVE_DIR/llama-3.1-8b/snapkv_maxpool_sink4_win_32_llama_avg_ratio.npy}"
 
+# Raw context/question traces are a complete run artifact. Remove any stale
+# context_* directories so a smaller pilot run cannot accidentally mix with
+# data from an earlier profile.
+rm -rf "$MID_DATA_DIR"
 mkdir -p "$MID_DATA_DIR" "$OUTPUT_DIR"
 
 if [[ ! -f "$STATIC_BUDGET_CURVE" ]]; then
