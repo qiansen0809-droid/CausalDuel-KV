@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import re
+import string
+from collections import Counter
+
 import torch
 import torch.nn.functional as F
 
@@ -90,3 +94,59 @@ def continuation_nll(
         target_ids.reshape(-1),
         reduction="mean",
     )
+
+
+
+def _normalize_english_answer(text: str) -> str:
+    text = text.lower()
+    text = "".join(ch for ch in text if ch not in set(string.punctuation))
+    text = re.sub(r"\b(a|an|the)\b", " ", text)
+    return " ".join(text.split())
+
+
+def qa_f1_score(prediction: str, ground_truth: str) -> float:
+    """LongBench-style English QA token F1."""
+    pred_tokens = _normalize_english_answer(prediction).split()
+    gold_tokens = _normalize_english_answer(ground_truth).split()
+
+    if not pred_tokens and not gold_tokens:
+        return 1.0
+    if not pred_tokens or not gold_tokens:
+        return 0.0
+
+    common = Counter(pred_tokens) & Counter(gold_tokens)
+    same = sum(common.values())
+    if same == 0:
+        return 0.0
+
+    precision = same / len(pred_tokens)
+    recall = same / len(gold_tokens)
+    return float(2 * precision * recall / (precision + recall))
+
+
+def max_qa_f1_score(prediction: str, ground_truths: list[str]) -> float:
+    if not ground_truths:
+        return 0.0
+    return max(qa_f1_score(prediction, gt) for gt in ground_truths)
+
+
+def ruler_string_match_score(prediction: str, references: list[str]) -> float:
+    """
+    RULER retrieval metric used for non-QA RULER tasks: fraction of required
+    reference strings that occur in the prediction, case-insensitively.
+    """
+    if not references:
+        return 0.0
+    pred = prediction.strip().lower()
+    return float(
+        sum(1.0 if str(ref).lower() in pred else 0.0 for ref in references)
+        / len(references)
+    )
+
+
+def gate0_task_score(family: str, prediction: str, references: list[str]) -> float:
+    if family == "ruler_retrieval":
+        return ruler_string_match_score(prediction, references)
+    if family in {"longbench_single", "longbench_multi"}:
+        return max_qa_f1_score(prediction, references)
+    raise ValueError(f"unsupported Gate-0 family: {family}")
