@@ -82,18 +82,28 @@ def test_lu_boundary_candidates_cover_registered_categories():
         num_candidates=6,
         min_keep=10,
         max_keep=100,
-        donor_pool_size=4,
-        receiver_pool_size=4,
     )
 
-    assert len(donors) == 4
-    assert len(receivers) == 4
     assert len(candidates) == 6
+    assert donors
+    assert receivers
 
     categories = {candidate.category for candidate in candidates}
     assert "lu_promising" in categories
     assert "near_boundary" in categories
     assert "low_priority_control" in categories
+
+    promising = [c for c in candidates if c.category == "lu_promising"]
+    boundary = [c for c in candidates if c.category == "near_boundary"]
+    control = [c for c in candidates if c.category == "low_priority_control"]
+
+    assert len(promising) == 2
+    assert len(boundary) == 3
+    assert len(control) == 1
+    assert all(c.lu_marginal_delta > 0 for c in promising)
+    assert any(c.lu_marginal_delta > 0 for c in boundary)
+    assert any(c.lu_marginal_delta < 0 for c in boundary)
+    assert control[0].lu_marginal_delta < 0
 
     for candidate in candidates:
         assert candidate.donor != candidate.receiver
