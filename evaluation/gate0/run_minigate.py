@@ -41,7 +41,7 @@ def parse_args():
     p.add_argument("--compression-ratio", type=float, default=0.80)
     p.add_argument("--swap-size", type=int, default=16)
     p.add_argument("--num-swaps", type=int, default=6)
-    p.add_argument("--probe-lens", type=int, nargs="+", default=[32, 64])
+    p.add_argument("--probe-lens", type=int, nargs="+", default=[8, 16, 32])
     p.add_argument("--max-new-tokens", type=int, default=64)
     p.add_argument("--dtype", choices=["bfloat16", "float16"], default="bfloat16")
     p.add_argument("--limit", type=int, default=None, help="Engineering pilot only.")
