@@ -48,8 +48,6 @@ def parse_args():
         default=6,
         help="Formal Gate 0 uses 6-8 swaps; engineering fallback may use fewer.",
     )
-    p.add_argument("--donor-pool-size", type=int, default=4)
-    p.add_argument("--receiver-pool-size", type=int, default=4)
     p.add_argument("--max-tokens", type=int, default=8192)
     p.add_argument("--dtype", choices=["bfloat16", "float16"], default="bfloat16")
     p.add_argument("--output", type=Path, default=Path("gate0_poc.json"))
@@ -186,8 +184,6 @@ def main():
             num_candidates=args.num_swaps,
             min_keep=min_keep,
             max_keep=prefix_ids.shape[1],
-            donor_pool_size=args.donor_pool_size,
-            receiver_pool_size=args.receiver_pool_size,
         )
         generation_mode = "lu_boundary_marginal"
         marginal_meta = {
