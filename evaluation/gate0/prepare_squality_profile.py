@@ -19,6 +19,11 @@ def parse_args():
         default="pszemraj/SQuALITY-v1.3",
         help="Public SQuALITY v1.3 mirror on Hugging Face.",
     )
+    p.add_argument(
+        "--revision",
+        default="336f1743b13cb5ad3524bf45e72b8aef27ad4d8e",
+        help="Pinned Hugging Face dataset revision for reproducibility.",
+    )
     p.add_argument("--split", default="train")
     p.add_argument("--num-stories", type=int, default=6)
     p.add_argument("--questions-per-story", type=int, default=5)
@@ -59,7 +64,21 @@ def main():
         raise ValueError("invalid token-length interval")
 
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
-    ds = load_dataset(args.dataset, split=args.split)
+
+    # Do not let datasets auto-discover every JSON/JSONL artifact in the Hub
+    # repository. Some mirrors contain auxiliary files with a different schema
+    # (e.g. instruction/input/output), which can trigger DatasetGenerationCastError.
+    # Pin and load exactly the canonical SQuALITY split file instead.
+    split_filename = "dev.jsonl" if args.split == "validation" else f"{args.split}.jsonl"
+    data_url = (
+        f"https://huggingface.co/datasets/{args.dataset}/resolve/"
+        f"{args.revision}/{split_filename}"
+    )
+    ds = load_dataset(
+        "json",
+        data_files={args.split: data_url},
+        split=args.split,
+    )
 
     eligible = []
     for row_idx, row in enumerate(ds):
@@ -123,6 +142,8 @@ def main():
     manifest = {
         "source_dataset": args.dataset,
         "source_split": args.split,
+        "source_revision": args.revision,
+        "source_file": data_url,
         "model_tokenizer": args.model,
         "seed": args.seed,
         "selection": {
