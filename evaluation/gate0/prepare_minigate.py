@@ -44,7 +44,7 @@ def parse_args():
     p.add_argument("--target-context-tokens", type=int, default=8192)
     p.add_argument("--min-context-tokens", type=int, default=6144)
     p.add_argument("--max-context-tokens", type=int, default=9216)
-    p.add_argument("--ruler-revision", default="24adcea")
+    p.add_argument("--ruler-revision", default="24adceac8a0e6532936e8d721cd9e9084d2e4686")
     p.add_argument(
         "--ruler-local-parquet",
         type=Path,
