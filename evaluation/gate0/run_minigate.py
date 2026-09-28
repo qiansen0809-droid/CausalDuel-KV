@@ -370,6 +370,7 @@ def main():
             "source_config": row["source_config"],
             "source_revision": row["source_revision"],
             "source_index": row["source_index"],
+            "context_sha256": row.get("context_sha256"),
             "context_tokens": context_len,
             "query_tokens": int(query_ids.shape[1]),
             "compression_ratio": args.compression_ratio,
