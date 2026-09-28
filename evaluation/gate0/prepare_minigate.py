@@ -46,6 +46,12 @@ def parse_args():
     p.add_argument("--max-context-tokens", type=int, default=9216)
     p.add_argument("--ruler-revision", default="24adcea")
     p.add_argument(
+        "--ruler-local-parquet",
+        type=Path,
+        default=None,
+        help="Optional local copy of RULER 8192 test parquet; avoids flaky HF downloads.",
+    )
+    p.add_argument(
         "--longbench-revision",
         default="0ce23c4aa955accf17527097eb12a8f00e2743e6",
     )
@@ -171,13 +177,23 @@ def load_longbench_group(
     return selected
 
 
-def load_ruler(tokenizer, revision, target):
-    ds = load_dataset(
-        "simonjegou/ruler",
-        "8192",
-        split="test",
-        revision=revision,
-    )
+def load_ruler(tokenizer, revision, target, local_parquet=None):
+    if local_parquet is not None:
+        local_parquet = Path(local_parquet)
+        if not local_parquet.exists():
+            raise FileNotFoundError(f"RULER parquet not found: {local_parquet}")
+        ds = load_dataset(
+            "parquet",
+            data_files={"test": str(local_parquet)},
+            split="test",
+        )
+    else:
+        ds = load_dataset(
+            "simonjegou/ruler",
+            "8192",
+            split="test",
+            revision=revision,
+        )
 
     by_task = {task: [] for task in RULER_RETRIEVAL_TASKS}
     for i, row in enumerate(ds):
@@ -224,6 +240,7 @@ def main():
         tokenizer,
         revision=args.ruler_revision,
         target=args.target_context_tokens,
+        local_parquet=args.ruler_local_parquet,
     )
     single = load_longbench_group(
         tokenizer,
@@ -277,6 +294,7 @@ def main():
             "revision": args.ruler_revision,
             "tasks": RULER_RETRIEVAL_TASKS,
             "selection": "one row per retrieval subtask, closest context length to target",
+            "local_parquet": str(args.ruler_local_parquet) if args.ruler_local_parquet else None,
         },
         "longbench": {
             "dataset": "Xnhyacinth/LongBench",
