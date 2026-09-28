@@ -216,6 +216,21 @@ def selection_summary(payloads, probe_len):
             sum(x["fallback"] for x in per_prompt) / len(per_prompt)
             if per_prompt else None
         ),
+        "prompts_with_beneficial_swap_rate": (
+            sum(x["local_oracle_answer_nll_gain"] > 0 for x in per_prompt)
+            / len(per_prompt)
+            if per_prompt else None
+        ),
+        "selected_improvement_rate": (
+            sum(x["selected_answer_nll_gain"] > 0 for x in per_prompt)
+            / len(per_prompt)
+            if per_prompt else None
+        ),
+        "selected_harm_rate": (
+            sum(x["selected_answer_nll_gain"] < 0 for x in per_prompt)
+            / len(per_prompt)
+            if per_prompt else None
+        ),
         "mean_selected_answer_nll_gain": finite_mean(
             [x["selected_answer_nll_gain"] for x in per_prompt]
         ),
