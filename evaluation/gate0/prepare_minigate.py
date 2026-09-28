@@ -20,17 +20,20 @@ RULER_RETRIEVAL_TASKS = [
     "niah_multiquery",
 ]
 
-SINGLE_DOC_QUOTAS = {
-    "narrativeqa": 3,
-    "qasper": 3,
-    "multifieldqa_en": 2,
-}
+SINGLE_DOC_TASKS = [
+    "narrativeqa",
+    "qasper",
+    "multifieldqa_en",
+]
 
-MULTI_DOC_QUOTAS = {
-    "hotpotqa": 3,
-    "2wikimqa": 3,
-    "musique": 2,
-}
+MULTI_DOC_TASKS = [
+    "hotpotqa",
+    "2wikimqa",
+    "musique",
+]
+
+LONG_BENCH_FAMILY_SIZE = 8
+LONG_BENCH_MIN_PER_TASK = 2
 
 
 def parse_args():
@@ -115,19 +118,11 @@ def make_record(
     }
 
 
-def choose_by_length(records, quota, target, low, high, label):
+def distinct_by_length(records, target, low, high):
     eligible = [
         r for r in records
         if low <= r["context_tokens"] <= high
     ]
-    if len(eligible) < quota:
-        raise RuntimeError(
-            f"{label}: only {len(eligible)} examples fall in "
-            f"[{low}, {high}] context tokens; need {quota}. "
-            "Do not silently truncate benchmark contexts; widen the preregistered "
-            "length window explicitly if this happens."
-        )
-
     eligible.sort(
         key=lambda r: (
             abs(r["context_tokens"] - target),
@@ -142,30 +137,31 @@ def choose_by_length(records, quota, target, low, high, label):
             continue
         selected.append(row)
         seen_contexts.add(row["context_sha256"])
-        if len(selected) == quota:
-            break
-
-    if len(selected) < quota:
-        raise RuntimeError(
-            f"{label}: only {len(selected)} distinct contexts fall in "
-            f"[{low}, {high}] context tokens; need {quota}. "
-            "MiniGate requires distinct documents/contexts within each task."
-        )
-
     return selected
 
 
 def load_longbench_group(
     tokenizer,
-    quotas,
+    tasks,
     family,
     revision,
     target,
     low,
     high,
+    total_size=LONG_BENCH_FAMILY_SIZE,
+    min_per_task=LONG_BENCH_MIN_PER_TASK,
 ):
-    selected = []
-    for task, quota in quotas.items():
+    """
+    Build one 8-prompt LongBench family without duplicate contexts.
+
+    The selection is intentionally balanced but does not force brittle fixed
+    quotas such as 3/3/2. We first reserve two distinct natural contexts from
+    each task, then fill the remaining two slots from the globally closest
+    unused contexts to the 8K target. Selection uses only task identity and
+    tokenizer length, never model outputs or answer quality.
+    """
+    pools = {}
+    for task in tasks:
         ds = load_dataset(
             "Xnhyacinth/LongBench",
             task,
@@ -186,17 +182,64 @@ def load_longbench_group(
             )
             for i, row in enumerate(ds)
         ]
-        selected.extend(
-            choose_by_length(
-                records,
-                quota=quota,
-                target=target,
-                low=low,
-                high=high,
-                label=f"{family}/{task}",
+        pools[task] = distinct_by_length(records, target, low, high)
+
+        if len(pools[task]) < min_per_task:
+            raise RuntimeError(
+                f"{family}/{task}: only {len(pools[task])} distinct contexts fall "
+                f"in [{low}, {high}] context tokens; need at least {min_per_task}."
             )
+
+    selected = []
+    seen_contexts = set()
+
+    # Balanced base: two distinct contexts from every task.
+    for task in tasks:
+        taken = 0
+        for row in pools[task]:
+            if row["context_sha256"] in seen_contexts:
+                continue
+            selected.append(row)
+            seen_contexts.add(row["context_sha256"])
+            taken += 1
+            if taken == min_per_task:
+                break
+        if taken < min_per_task:
+            raise RuntimeError(
+                f"{family}/{task}: could not reserve {min_per_task} globally "
+                "distinct contexts after cross-task deduplication."
+            )
+
+    # Fill the remaining family slots by closeness to the target length.
+    remaining = []
+    for task in tasks:
+        for row in pools[task]:
+            if row["context_sha256"] not in seen_contexts:
+                remaining.append(row)
+
+    remaining.sort(
+        key=lambda r: (
+            abs(r["context_tokens"] - target),
+            r["task"],
+            r["source_index"],
         )
-    return selected
+    )
+
+    for row in remaining:
+        if len(selected) >= total_size:
+            break
+        if row["context_sha256"] in seen_contexts:
+            continue
+        selected.append(row)
+        seen_contexts.add(row["context_sha256"])
+
+    if len(selected) < total_size:
+        raise RuntimeError(
+            f"{family}: only {len(selected)} globally distinct contexts available "
+            f"in [{low}, {high}] tokens; need {total_size}."
+        )
+
+    return selected[:total_size]
 
 
 def load_ruler(tokenizer, revision, target, local_parquet=None):
@@ -266,7 +309,7 @@ def main():
     )
     single = load_longbench_group(
         tokenizer,
-        quotas=SINGLE_DOC_QUOTAS,
+        tasks=SINGLE_DOC_TASKS,
         family="longbench_single",
         revision=args.longbench_revision,
         target=args.target_context_tokens,
@@ -275,7 +318,7 @@ def main():
     )
     multi = load_longbench_group(
         tokenizer,
-        quotas=MULTI_DOC_QUOTAS,
+        tasks=MULTI_DOC_TASKS,
         family="longbench_multi",
         revision=args.longbench_revision,
         target=args.target_context_tokens,
@@ -321,9 +364,15 @@ def main():
         "longbench": {
             "dataset": "Xnhyacinth/LongBench",
             "revision": args.longbench_revision,
-            "single_doc_quotas": SINGLE_DOC_QUOTAS,
-            "multi_doc_quotas": MULTI_DOC_QUOTAS,
-            "selection": "closest natural context lengths to target within fixed token window; no truncation",
+            "single_doc_tasks": SINGLE_DOC_TASKS,
+            "multi_doc_tasks": MULTI_DOC_TASKS,
+            "family_size": LONG_BENCH_FAMILY_SIZE,
+            "min_per_task": LONG_BENCH_MIN_PER_TASK,
+            "selection": (
+                "reserve two distinct natural contexts per task, then fill the "
+                "remaining two family slots by closeness to the target length; "
+                "fixed token window; no truncation; no model-output-based selection"
+            ),
         },
         "samples": [
             {
