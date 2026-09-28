@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -92,8 +93,11 @@ def make_record(
     context_tokens = token_len(tokenizer, context, add_special_tokens=True)
     query_tokens = token_len(tokenizer, question + answer_prefix, add_special_tokens=False)
 
+    context_sha256 = hashlib.sha256(context.encode("utf-8")).hexdigest()
+
     return {
         "id": f"{family}__{task}__{source_index}",
+        "context_sha256": context_sha256,
         "family": family,
         "task": task,
         "source_dataset": source_dataset,
@@ -130,7 +134,25 @@ def choose_by_length(records, quota, target, low, high, label):
             r["source_index"],
         )
     )
-    return eligible[:quota]
+
+    selected = []
+    seen_contexts = set()
+    for row in eligible:
+        if row["context_sha256"] in seen_contexts:
+            continue
+        selected.append(row)
+        seen_contexts.add(row["context_sha256"])
+        if len(selected) == quota:
+            break
+
+    if len(selected) < quota:
+        raise RuntimeError(
+            f"{label}: only {len(selected)} distinct contexts fall in "
+            f"[{low}, {high}] context tokens; need {quota}. "
+            "MiniGate requires distinct documents/contexts within each task."
+        )
+
+    return selected
 
 
 def load_longbench_group(
@@ -314,6 +336,7 @@ def main():
                     "source_config",
                     "source_revision",
                     "source_index",
+                    "context_sha256",
                     "context_tokens",
                     "query_tokens",
                     "prompt_tokens",
