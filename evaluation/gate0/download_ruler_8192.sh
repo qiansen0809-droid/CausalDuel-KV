@@ -28,6 +28,7 @@ for attempt in range(1, 21):
             revision="24adceac8a0e6532936e8d721cd9e9084d2e4686",
             local_dir=str(out.parent),
             local_dir_use_symlinks=False,
+            resume_download=True,
         )
         cached = Path(cached)
         if cached.resolve() != out.resolve():
