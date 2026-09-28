@@ -183,25 +183,25 @@ def generate_lu_boundary_swaps(
     num_candidates: int = 6,
     min_keep: int = 1,
     max_keep: int | None = None,
-    donor_pool_size: int = 4,
-    receiver_pool_size: int = 4,
 ) -> tuple[list[SwapCandidate], list[Unit], list[Unit]]:
     """
-    Construct the Gate-0 candidate neighborhood from LU-KV boundary marginals.
+    Construct the formal Gate-0 candidate neighborhood from LU-KV boundary
+    marginals.
 
-    Donors:
-      lowest LU remove-one-step cost among units that can legally donate.
+    Candidate search is GLOBAL over every legal donor->receiver pair. This is
+    important: restricting the search to only the lowest-remove-cost donors and
+    highest-next-gain receivers makes every candidate LU-favored by
+    construction, which prevents a genuine near-zero boundary set and an
+    LU-unfavored control.
 
-    Receivers:
-      highest LU next-one-step gain among units that can legally receive.
+    For six candidates the registered mix is:
+      - 2 LU-favored swaps: largest positive gain - cost
+      - 3 near-boundary swaps: closest to zero, with both signs represented
+        when possible
+      - 1 low-priority control: most LU-unfavored legal swap
 
-    Candidate coverage follows the pre-registered Gate-0 plan:
-      - 2-3 LU-favored swaps (largest gain - cost)
-      - 3-4 near-boundary swaps (smallest |gain - cost|)
-      - 1 low-priority but legal control swap
-
-    For num_candidates=6 this becomes 2 promising + 3 boundary + 1 control.
-    For num_candidates=8 this becomes 3 promising + 4 boundary + 1 control.
+    The returned donor/receiver pools are the unique units actually used by the
+    selected candidates, not a pre-filter that constrains candidate search.
     """
     if num_candidates < 3:
         raise ValueError("formal Gate-0 generation requires at least 3 candidates")
@@ -228,27 +228,9 @@ def generate_lu_boundary_swaps(
         and np.isfinite(next_gain[u.layer, u.head])
     ]
 
-    donors = sorted(
-        donor_eligible,
-        key=lambda u: (
-            float(remove_cost[u.layer, u.head]),
-            u.layer,
-            u.head,
-        ),
-    )[:donor_pool_size]
-
-    receivers = sorted(
-        receiver_eligible,
-        key=lambda u: (
-            -float(next_gain[u.layer, u.head]),
-            u.layer,
-            u.head,
-        ),
-    )[:receiver_pool_size]
-
     all_pairs: list[SwapCandidate] = []
-    for donor in donors:
-        for receiver in receivers:
+    for donor in donor_eligible:
+        for receiver in receiver_eligible:
             if donor == receiver:
                 continue
 
@@ -265,7 +247,6 @@ def generate_lu_boundary_swaps(
                 lu_marginal_delta=delta,
             )
 
-            # Exact budget legality check.
             apply_swap(
                 baseline,
                 candidate,
@@ -275,19 +256,18 @@ def generate_lu_boundary_swaps(
             all_pairs.append(candidate)
 
     if not all_pairs:
-        return [], donors, receivers
+        return [], [], []
 
-    # Pre-registered mix.
     promising_n = 3 if num_candidates >= 8 else 2
     boundary_n = num_candidates - promising_n - 1
 
     selected: list[SwapCandidate] = []
     selected_keys: set[tuple[Unit, Unit]] = set()
 
-    def add(candidate: SwapCandidate, category: str):
+    def add(candidate: SwapCandidate, category: str) -> bool:
         key = (candidate.donor, candidate.receiver)
         if key in selected_keys:
-            return
+            return False
         selected.append(
             SwapCandidate(
                 donor=candidate.donor,
@@ -300,7 +280,9 @@ def generate_lu_boundary_swaps(
             )
         )
         selected_keys.add(key)
+        return True
 
+    # 1) Strong LU-favored moves.
     promising = sorted(
         all_pairs,
         key=lambda c: (
@@ -316,6 +298,37 @@ def generate_lu_boundary_swaps(
             break
         add(cand, "lu_promising")
 
+    # 2) Genuine local boundary probes. For three boundary candidates, prefer
+    # one closest positive, one closest negative, then the closest remaining
+    # pair (which may be exactly zero). This gives the duel meaningful
+    # directional ambiguity instead of only LU-favored moves.
+    positive_boundary = sorted(
+        [c for c in all_pairs if float(c.lu_marginal_delta) > 0],
+        key=lambda c: (
+            float(c.lu_marginal_delta),
+            c.donor.layer,
+            c.donor.head,
+            c.receiver.layer,
+            c.receiver.head,
+        ),
+    )
+    negative_boundary = sorted(
+        [c for c in all_pairs if float(c.lu_marginal_delta) < 0],
+        key=lambda c: (
+            -float(c.lu_marginal_delta),
+            c.donor.layer,
+            c.donor.head,
+            c.receiver.layer,
+            c.receiver.head,
+        ),
+    )
+
+    if boundary_n > 0:
+        for pool in (positive_boundary, negative_boundary):
+            for cand in pool:
+                if add(cand, "near_boundary"):
+                    break
+
     boundary = sorted(
         all_pairs,
         key=lambda c: (
@@ -327,11 +340,16 @@ def generate_lu_boundary_swaps(
             c.receiver.head,
         ),
     )
-    for cand in boundary:
-        if len([c for c in selected if c.category == "near_boundary"]) >= boundary_n:
+    while len([c for c in selected if c.category == "near_boundary"]) < boundary_n:
+        added = False
+        for cand in boundary:
+            if add(cand, "near_boundary"):
+                added = True
+                break
+        if not added:
             break
-        add(cand, "near_boundary")
 
+    # 3) A real LU-unfavored control whenever one exists.
     control = sorted(
         all_pairs,
         key=lambda c: (
@@ -343,18 +361,37 @@ def generate_lu_boundary_swaps(
         ),
     )
     for cand in control:
-        if (cand.donor, cand.receiver) not in selected_keys:
-            add(cand, "low_priority_control")
+        if add(cand, "low_priority_control"):
             break
 
-    # Small donor/receiver pools can yield fewer unique pairs than requested.
+    # Very small legal spaces can still yield fewer unique pairs than the
+    # requested mix. Fill deterministically from the strongest remaining pairs.
     if len(selected) < num_candidates:
         for cand in promising:
             if len(selected) >= num_candidates:
                 break
             add(cand, "fill")
 
-    return selected[:num_candidates], donors, receivers
+    selected = selected[:num_candidates]
+
+    donor_pool = sorted(
+        {c.donor for c in selected},
+        key=lambda u: (
+            float(remove_cost[u.layer, u.head]),
+            u.layer,
+            u.head,
+        ),
+    )
+    receiver_pool = sorted(
+        {c.receiver for c in selected},
+        key=lambda u: (
+            -float(next_gain[u.layer, u.head]),
+            u.layer,
+            u.head,
+        ),
+    )
+
+    return selected, donor_pool, receiver_pool
 
 
 def generate_poc_swaps(
