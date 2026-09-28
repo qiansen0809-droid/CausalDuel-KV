@@ -20,6 +20,12 @@ parser.add_argument("--cuda_device", type=str, default="0")
 parser.add_argument("--max_new_tokens", type=int, default=64)
 parser.add_argument("--answer_prefix", type=str, default="回答：")
 parser.add_argument("--seed", type=int, default=42)
+parser.add_argument(
+    "--methods",
+    type=str,
+    default="snapkv,keydiff,ea",
+    help="Comma-separated scorer statistics to record. Oracle value norms remain enabled.",
+)
 args = parser.parse_args()
 
 os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda_device
@@ -32,7 +38,11 @@ class AnalyzeConfig:
     max_new_tokens: int = args.max_new_tokens
     answer_prefix: str = args.answer_prefix
     seed: int = args.seed
+    methods: str = args.methods
     use_value_norm_weighting: bool = True
+
+    def method_enabled(self, name: str) -> bool:
+        return name in {part.strip() for part in self.methods.split(",") if part.strip()}
     snapkv_window_size: int = 32
     snapkv_kernel_size: int = 7
     ea_future_positions: int = 512
@@ -255,10 +265,28 @@ def custom_attn_forward_wrapper(layer_idx, original_forward, config_obj):
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, {"sin": sin, "cos": cos, "cache_position": cache_position})
 
         if seq_len > 1 and recorder.collecting_context_metrics:
-            if key_states.shape[2] >= recorder.context_len: recorder.compute_keydiff(layer_idx, key_states)
+            if (
+                config_obj.method_enabled("keydiff")
+                and key_states.shape[2] >= recorder.context_len
+            ):
+                recorder.compute_keydiff(layer_idx, key_states)
             if config_obj.use_value_norm_weighting and hasattr(self, "o_proj"):
-                recorder.compute_and_store_value_norms(layer_idx, value_states, self.o_proj.weight, num_heads, num_key_value_heads, head_dim)
-            recorder.compute_ea(layer_idx, self, hidden_states, key_states, value_states)
+                recorder.compute_and_store_value_norms(
+                    layer_idx,
+                    value_states,
+                    self.o_proj.weight,
+                    num_heads,
+                    num_key_value_heads,
+                    head_dim,
+                )
+            if config_obj.method_enabled("ea"):
+                recorder.compute_ea(
+                    layer_idx,
+                    self,
+                    hidden_states,
+                    key_states,
+                    value_states,
+                )
 
         key_states_rep = repeat_kv(key_states, num_heads // num_key_value_heads)
         value_states_rep = repeat_kv(value_states, num_heads // num_key_value_heads)
@@ -267,8 +295,17 @@ def custom_attn_forward_wrapper(layer_idx, original_forward, config_obj):
         if attention_mask is not None: attn_weights = attn_weights + attention_mask
         attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
 
-        if seq_len > 1 and recorder.collecting_context_metrics:
-            recorder.compute_snapkv(layer_idx, attn_weights, num_heads, num_key_value_heads)
+        if (
+            seq_len > 1
+            and recorder.collecting_context_metrics
+            and config_obj.method_enabled("snapkv")
+        ):
+            recorder.compute_snapkv(
+                layer_idx,
+                attn_weights,
+                num_heads,
+                num_key_value_heads,
+            )
         if seq_len == 1 and recorder.is_decoding:
             recorder.update_attn(layer_idx, attn_weights.detach())
 
