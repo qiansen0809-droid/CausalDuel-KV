@@ -10,6 +10,9 @@ CURVE_DIR="$ROOT_DIR/evaluation/curve_data"
 CUDA_DEVICE="${CUDA_DEVICE:-0}"
 SWAP_SIZE="${SWAP_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
+MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-64}"
+ANSWER_PREFIX="${ANSWER_PREFIX:-Answer:}"
+PROFILE_SEED="${PROFILE_SEED:-20260928}"
 MID_DATA_DIR="${MID_DATA_DIR:-$ROOT_DIR/results/gate0/lu_profile_raw}"
 OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/results/gate0/lu_profile}"
 OUTPUT_PREFIX="${OUTPUT_PREFIX:-gate0_lu_global}"
@@ -27,7 +30,10 @@ python "$CURVE_DIR/step1_llama.py" \
   --model_path "$MODEL_PATH" \
   --dataset_path "$DATASET_PATH" \
   --output_dir "$MID_DATA_DIR" \
-  --cuda_device "$CUDA_DEVICE"
+  --cuda_device "$CUDA_DEVICE" \
+  --max_new_tokens "$MAX_NEW_TOKENS" \
+  --answer_prefix "$ANSWER_PREFIX" \
+  --seed "$PROFILE_SEED"
 
 echo "[Gate0] Step 2/2: solve static LU curve and export boundary marginals"
 python "$CURVE_DIR/step2_compute_curve.py" \
