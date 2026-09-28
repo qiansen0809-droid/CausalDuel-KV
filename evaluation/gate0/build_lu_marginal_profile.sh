@@ -37,7 +37,8 @@ python "$CURVE_DIR/step1_llama.py" \
   --cuda_device "$CUDA_DEVICE" \
   --max_new_tokens "$MAX_NEW_TOKENS" \
   --answer_prefix "$ANSWER_PREFIX" \
-  --seed "$PROFILE_SEED"
+  --seed "$PROFILE_SEED" \
+  --methods snapkv
 
 echo "[Gate0] Step 2/2: solve static LU curve and export boundary marginals"
 python "$CURVE_DIR/step2_compute_curve.py" \
