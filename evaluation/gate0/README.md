@@ -71,6 +71,26 @@ This export reuses LU-KV's own scorer alignment and convex-hull relaxation. It i
 
 Use a **separate offline LU profiling dataset**. Do not build this profile from MiniGate, calibration, or held-out test prompts.
 
+For the CausalDuel-KV Gate-0 run, the fixed public profiling source is **SQuALITY v1.3 train**:
+
+- 6 distinct train stories;
+- 5 human-written questions per story;
+- 30 context/question pairs total;
+- Llama-3.1 tokenizer length restricted to 4096-7168 tokens;
+- deterministic story selection with seed 20260928;
+- all five SQuALITY questions are retained, giving one broad plot query plus four query-focused prompts per story.
+
+This is intentionally separate from the planned RULER/LongBench Gate-0 evaluation. It also keeps the query count at 30, matching the scale reported for LU-KV's original offline calibration, while replacing the unreleased AI-generated novel/questions with reproducible public data.
+
+The complete preparation + marginal export can be run with:
+
+```bash
+MODEL_PATH=/path/to/Meta-Llama-3.1-8B-Instruct \
+bash evaluation/gate0/run_squality_lu_profile.sh
+```
+
+The script writes both the exact selected profiling JSONL and a manifest containing source row IDs, token lengths, questions, seed, and selection parameters.
+
 ```bash
 MODEL_PATH=meta-llama/Meta-Llama-3.1-8B-Instruct \
 DATASET_PATH=/path/to/separate_lu_profile.jsonl \
