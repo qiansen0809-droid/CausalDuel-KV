@@ -285,8 +285,13 @@ Gold answers are never used for candidate construction or online behavioral
 selection. They are used only after the candidate has been fixed, as an offline
 label through teacher-forced answer NLL and the benchmark task metric.
 
-Behavioral probes default to 32 and 64 tokens from the tail of the
-question+answer-prefix. The expensive context prefill is shared across probe
+Behavioral probes default to 8, 16, and 32 tokens from the tail of the
+question+answer-prefix. The 16-token probe is the primary Gate-0 signal; 8 and
+32 are sensitivity checks. This was fixed before model outcomes were inspected,
+because benchmark query metadata showed that many LongBench questions are
+shorter than 32 tokens, making a 64-token probe redundant. When a query is
+shorter than a requested probe, the full query is used and the actual probe
+length is recorded. The expensive context prefill is shared across probe
 lengths for each condition.
 
 A one-prompt engineering pilot can be run with:
