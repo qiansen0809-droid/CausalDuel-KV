@@ -24,7 +24,7 @@ def probability_overlap(
     """
     ref = F.softmax(reference_logits.float(), dim=-1)
     cand = F.softmax(candidate_logits.float(), dim=-1)
-    return torch.minimum(ref, cand).sum(dim=-1).mean()
+    return torch.minimum(ref, cand).sum(dim=-1).mean().clamp(0.0, 1.0)
 
 
 def teacher_to_candidate_kl(
